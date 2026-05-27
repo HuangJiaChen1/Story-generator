@@ -29,14 +29,24 @@ def get_all_type_desc():
 # 2-4岁提示词模板
 PROMPT_2_4 = '''Please write a short children's story based on the requirements below.
 
+
 Age: 2-4 years old
-Style: Simple sentences + Repetition + Sound words
+Style: Simple sentences + Repetition + Sound words.
+
 Length: 30-60 seconds (about 60-110 words)
 Structure: One simple storyline
 Keywords: {object_name}
-Impotant: Please carefully check whether the word count meets the requirements.
+Impotant: 
+Please carefully check whether the word count meets the requirements.
+Not a lesson-teaching style, but one that captures children's interest.
 Story Types:
 {all_types}
+
+Universal story rules :
+- Keep only 1 main storyline
+- 1-3 characters maximum
+- Introduce a "small change" every 20-30 seconds(about 40-60 words)
+- Get into the main event within the first 10 seconds(about 20 words)
 
 Based on the keywords "{object_name}", please:
 1. Pick the best story type from the four above
@@ -48,23 +58,31 @@ Writing tips for this age:
 - Use fun sound words ("boing boing boing", "wheee", "pop", "gulp")
 - Write like you're talking to a child
 - Use rhymes or rhythm to make it fun
+- Use concrete nouns frequently (e.g., "teddy bear" not "toy")
+- Move forward only one small event at a time
+- Focus on feelings and actions, not explanations
+- Repeat key words to help memory
+- Avoid abstract words and time jumps
+- Use many onomatopoeic and mimetic words
+- Avoid complex plot twists
 
 Opening Format (MUST use this exact format):
-"Hello little friend! Do you want to hear a story about [keywords]? Today's story is about ..."
+"Hey little friend, remember we talked about [keywords]? Do you want to hear a story about them? "
 
 Opening Guidance:
 - After the fixed opening, continue with 1-2 short sentences
 - Make the child feel curious and comfortable
 - Jump right into the action
 
-Ending (must include):
-- 1-2 simple sentences about what we learned
-- 1-2 warm, cozy sentences to end
-- Invite the child to do something (e.g., "Next time, give it a gentle hug")
+Ending (must include - for photo memory review style):
+- 1-2 sentences connecting to the child's real experience today (e.g., "Do you remember when you... today?")
+- 1-2 warm, comforting sentences to help the child recall happy moments
+- End with a gentle goodnight or a warm wish for tomorrow
 
 What to output:
 - Just the story and the matched story type. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
 Impotant: Please carefully check whether the word count meets the requirements.
+Not a lesson-teaching style, but one that captures children's interest.
 Now write a story for 2-4 year olds:
 '''
 
@@ -73,16 +91,25 @@ PROMPT_4_6 = '''Please write a short children's story based on the requirements 
 
 Age: 4-6 years old
 Style: Short story + Cause and effect
+
 Length: 60-90 seconds (about 120-170 words)
 Structure: Simple "why" and "because"
 Keywords: {object_name}
 Impotant: Please carefully check whether the word count meets the requirements.
+Not a lesson-teaching style, but one that captures children's interest.
 Story Types:
 {all_types}
+
+Universal story rules :
+- Keep only 1 main storyline
+- 1-3 characters maximum
+- Introduce a "small change" every 20-30 seconds(about 40-60 words)
+- Get into the main event within the first 10 seconds(about 20 words)
 
 Based on the keywords "{object_name}", please:
 1. Pick the best story type from the four above
 2. Add a small learning point that fits naturally with the objects
+3. Emphasize the fun of the plot rather than the overall educational significance. Avoid straightforward reasoning.
 
 Writing tips for this age:
 - Use words like "because", "so", "that's why"
@@ -90,23 +117,31 @@ Writing tips for this age:
 - Add colorful details, use adjectives and good descriptions
 - Write like you're telling a story to a child
 - Use rhymes or rhythm to make it fun
+- Use concrete nouns frequently (e.g., "little red car" not "vehicle")
+- Move forward only one small event at a time
+- Focus on feelings and actions, not lengthy explanations
+- Repeat key words to help memory and understanding
+- Avoid abstract words and sudden time jumps
+- Use many onomatopoeic and mimetic words (e.g., "whoosh", "click", "tap tap")
+- Avoid complex plot twists or unexpected turns
 
 Opening Format (MUST use this exact format):
-"Hello little friend! Do you want to hear a story about [keywords]? Today's story is about ..."
+"Hey little friend, remember we talked about [keywords]? Do you want to hear a story about them? "
 
 Opening Guidance:
 - After the fixed opening, continue with 2-3 sentences
 - Ask a question, set up a small mystery, or introduce the character
 - Make the child feel part of the story
 
-Ending (must include):
-- 1-2 sentences that wrap up what we learned
-- 1-2 encouraging sentences
-- You may ask the child a question
+Ending (must include - for photo memory review style):
+- 1-2 sentences connecting to the child's real experience today (e.g., "Do you remember when you... today?")
+- 1-2 warm, comforting sentences to help the child recall happy moments
+- End with a gentle goodnight or a warm wish for tomorrow
 
 What to output:
 - Just the story and the matched story type. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
 Impotant: Please carefully check whether the word count meets the requirements.
+Not a lesson-teaching style, but one that captures children's interest.
 Now write a story for 4-6 year olds:
 '''
 
@@ -119,12 +154,20 @@ Length: 90-120 seconds (about 180-230 words)
 Structure: A few connected events
 Keywords: {object_name}
 Impotant: Please carefully check whether the word count meets the requirements.
+Not a lesson-teaching style, but one that captures children's interest.
 Story Types:
 {all_types}
+
+Universal story rules :
+- Keep only 1 main storyline
+- 1-3 characters maximum
+- Introduce a "small change" every 20-30 seconds(about 40-60 words)
+- Get into the main event within the first 10 seconds(about 20 words)
 
 Based on the keywords "{object_name}", please:
 1. Pick the best story type from the four above
 2. Add a small learning point that fits naturally with the objects
+3. Emphasize the fun of the plot rather than the overall educational significance. Avoid straightforward reasoning.
 
 Writing tips for this age:
 - Include thoughts like "Why...?", "Then it understood...", "It felt..."
@@ -132,23 +175,30 @@ Writing tips for this age:
 - Add descriptive details (colors, sounds, feelings)
 - Use some interesting words, but keep it natural
 - Use rhymes or rhythm to make it fun
+- Include relationships and motivations between multiple characters
+- Make conflicts feel more real and slightly more complex
+- Add foreshadowing, small mysteries, and strategic thinking
+- Allow open endings (not required, but okay when fitting)
+- Include moderate psychological depiction and reasoning processes
+- Avoid preaching — let characters discover answers on their own
 
 Opening Format (MUST use this exact format):
-"Hello little friend! Do you want to hear a story about [keywords]? Today's story is about ..."
+"Hey little friend, remember we talked about [keywords]? Do you want to hear a story about them? "
 
 Opening Guidance:
 - After the fixed opening, continue with 3-4 sentences
 - Set the scene, introduce a relatable character, or ask an interesting question
 - Build a little anticipation
 
-Ending (must include):
-- 1-2 sentences that explain the little lesson (tie it to real life)
-- 2-3 warm, encouraging sentences
-- You may ask an open-ended question
+Ending (must include - for photo memory review style):
+- 1-2 sentences connecting to the child's real experience today (e.g., "Do you remember when you... today?")
+- 1-2 warm, comforting sentences to help the child recall happy moments
+- End with a gentle goodnight or a warm wish for tomorrow
 
 What to output:
 - Just the story and the matched story type. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
 Impotant: Please carefully check whether the word count meets the requirements.
+Not a lesson-teaching style, but one that captures children's interest.
 Now write a story for 6-8 year olds:
 '''
 
