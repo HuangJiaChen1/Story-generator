@@ -1,5 +1,5 @@
 # ============================================================
-# story_app_gemini.py - 儿童故事生成交互页面（Gemini 模型）
+# story_app_gemini.py - 儿童故事生成交互页面
 # ============================================================
 
 import streamlit as st
@@ -26,23 +26,19 @@ STORY_TYPES = {
 # AI 生成关键词的提示词
 # ============================================================
 
-KEYWORD_GENERATION_PROMPT = """You are a creative assistant for children's story keywords. 
+KEYWORD_GENERATION_PROMPT = """Generate 3 sets of keywords for children's stories. Each set has 3 concrete nouns.
 
-Please generate 3 sets of keywords (each set has 3 English words, separated by commas). 
-Each set should be a combination of 3 concrete nouns that children aged 2-8 would know and love.
-
-Examples of good keyword sets:
-- teddy bear, bouncy ball, cozy sofa
-- little watering can, sun hat, dandelion
-- night light, soft pillow, story book
-- rubber duck, bubble bath, fluffy towel
-
-Output format (each set on a new line):
+Output format (only output this, no extra words):
 set1: word1, word2, word3
 set2: word1, word2, word3
 set3: word1, word2, word3
 
-Please generate 3 creative and fun keyword sets for children's stories:"""
+Examples:
+set1: teddy bear, bouncy ball, cozy sofa
+set2: little watering can, sun hat, dandelion
+set3: rubber duck, bubble bath, fluffy towel
+
+Now generate 3 sets:"""
 
 # ============================================================
 # 加载配置文件
@@ -102,13 +98,24 @@ def generate_keywords_gemini(client, model_name):
             contents=KEYWORD_GENERATION_PROMPT,
             config=GenerateContentConfig(
                 temperature=0.8,
-                max_output_tokens=500,
+                max_output_tokens=1024,
                 top_p=0.9,
                 top_k=40
             ),
         )
         
-        return response.text.strip() if response.text else None
+        if response.text:
+            return response.text.strip()
+        
+        if hasattr(response, 'candidates') and response.candidates:
+            for candidate in response.candidates:
+                if hasattr(candidate, 'content') and candidate.content:
+                    if hasattr(candidate.content, 'parts') and candidate.content.parts:
+                        for part in candidate.content.parts:
+                            if hasattr(part, 'text') and part.text:
+                                return part.text.strip()
+        
+        return None
             
     except Exception as e:
         st.error(f"生成关键词失败: {e}")
@@ -130,6 +137,14 @@ def parse_keywords(text):
             if len(parts) == 2:
                 kw_part = parts[1].strip()
                 words = [w.strip() for w in kw_part.split(',')[:3]]
+                if len(words) == 3:
+                    keywords_list.append(', '.join(words))
+    
+    if not keywords_list:
+        for line in lines:
+            line = line.strip()
+            if line and ',' in line:
+                words = [w.strip() for w in line.split(',')[:3]]
                 if len(words) == 3:
                     keywords_list.append(', '.join(words))
     
@@ -215,14 +230,6 @@ def generate_story(system_prompt, user_prompt, client, model_name, temperature):
                 raise e
 
 # ============================================================
-# 带类型参数的提示词包装函数
-# ============================================================
-
-def story_prompt_with_type(object_name, prompt_id=0, story_type=3):
-    """支持故事类型参数的提示词生成（直接调用 story_prompt 并注入类型）"""
-    return story_prompt(object_name, prompt_id, story_type)
-
-# ============================================================
 # 初始化 session state
 # ============================================================
 
@@ -270,7 +277,10 @@ with st.sidebar:
             keywords_text = generate_keywords_gemini(client, model_name)
             if keywords_text:
                 st.session_state.generated_keywords = keywords_text
+                st.success("✅ 关键词生成成功！")
                 st.rerun()
+            else:
+                st.error("❌ 关键词生成失败，请重试")
     
     # 故事类型选择
     st.divider()
@@ -311,7 +321,7 @@ with st.sidebar:
 st.title("🐻 儿童故事生成助手")
 st.caption(f"当前模型：{model_name} | 年龄段：{age_label} | 创意程度：{temperature} | 故事类型：{STORY_TYPES[selected_story_type]['name']}")
 
-# 显示聊天历史（使用 chat_message）
+# 显示聊天历史
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -319,7 +329,7 @@ for msg in st.session_state.messages:
             st.caption(f"📊 {msg['word_count']} words")
 
 # ============================================================
-# 显示生成的关键词（使用 expander 下拉框）
+# 显示生成的关键词
 # ============================================================
 
 if st.session_state.generated_keywords:
@@ -338,7 +348,7 @@ if st.session_state.generated_keywords:
             st.text(st.session_state.generated_keywords)
 
 # ============================================================
-# 用户输入（使用 chat_input，自动固定在底部）
+# 用户输入
 # ============================================================
 
 user_input = st.chat_input("输入英文关键词，例如：teddy bear, ball, sofa")
@@ -352,7 +362,6 @@ if user_input:
     with st.chat_message("assistant"):
         with st.spinner("✨ 正在创作故事..."):
             try:
-                # 调用 story_prompt 函数（支持类型参数）
                 messages = story_prompt(user_input, prompt_id=prompt_id, story_type=selected_story_type)
                 
                 system_prompt = messages[0]["content"]
@@ -379,9 +388,6 @@ if user_input:
                     "content": story,
                     "word_count": word_count
                 })
-                
-                # 清空输入框（通过重新运行）
-                st.rerun()
                 
             except Exception as e:
                 st.error(f"生成失败：{e}")
