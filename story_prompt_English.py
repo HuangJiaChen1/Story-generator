@@ -1,5 +1,5 @@
 # ============================================================
-# story_gen.py - 儿童故事生成提示词模板（无示例版本）
+# story_gen.py - 儿童故事生成提示词模板（支持类型参数）
 # ============================================================
 
 # ============================================================
@@ -22,6 +22,17 @@ def get_all_type_desc():
     return desc
 
 
+def get_type_name(type_id: int) -> str:
+    """根据类型ID获取类型名称"""
+    type_names = {
+        1: "Adventure Series",
+        2: "Magic Connection", 
+        3: "Daily Warmth",
+        4: "Funny & Absurd"
+    }
+    return type_names.get(type_id, "Daily Warmth")
+
+
 # ============================================================
 # 各年龄段提示词模板
 # ============================================================
@@ -36,6 +47,7 @@ Style: Simple sentences + Repetition + Sound words.
 Length: 30-60 seconds (about 60-110 words)
 Structure: One simple storyline
 Keywords: {object_name}
+Story Type: {type_name}
 Impotant: 
 Please carefully check whether the word count meets the requirements.
 Not a lesson-teaching style, but one that captures children's interest.
@@ -48,9 +60,17 @@ Universal story rules :
 - Introduce a "small change" every 20-30 seconds(about 40-60 words)
 - Get into the main event within the first 10 seconds(about 20 words)
 
-Based on the keywords "{object_name}", please:
-1. Pick the best story type from the four above
+Based on the keywords "{object_name}" and story type "{type_name}", please:
+1. Follow the selected story type to create the story
 2. Add a small learning point that fits naturally with the objects
+
+Word restrictions (MUST follow):
+- Avoid using the following words or similar inappropriate/risky terms: 
+  silly, stupid, dumb, idiot, hate, kill, die, blood, gun, weapon, scary monster, ghost, 
+  hurt badly, attack, hit hard, cry loudly, ugly, fat, lazy, weird, crazy, mad.
+- Use only positive, gentle, and child-friendly language.
+- Do not use any word that may cause fear, sadness, or negative feelings in young children.
+- Before output, please double-check your story to ensure none of these words appear.
 
 Writing tips for this age:
 - Keep each sentence under 15 words
@@ -80,7 +100,8 @@ Ending (must include - for photo memory review style):
 - End with a gentle goodnight or a warm wish for tomorrow
 
 What to output:
-- Just the story and the matched story type. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
+- Just the story. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
+- Also include the matched story type at the beginning in parentheses, e.g., "(Type 1: Adventure Series)"
 Impotant: Please carefully check whether the word count meets the requirements.
 Not a lesson-teaching style, but one that captures children's interest.
 Now write a story for 2-4 year olds:
@@ -95,6 +116,7 @@ Style: Short story + Cause and effect
 Length: 60-90 seconds (about 120-170 words)
 Structure: Simple "why" and "because"
 Keywords: {object_name}
+Story Type: {type_name}
 Impotant: Please carefully check whether the word count meets the requirements.
 Not a lesson-teaching style, but one that captures children's interest.
 Story Types:
@@ -106,10 +128,18 @@ Universal story rules :
 - Introduce a "small change" every 20-30 seconds(about 40-60 words)
 - Get into the main event within the first 10 seconds(about 20 words)
 
-Based on the keywords "{object_name}", please:
-1. Pick the best story type from the four above
+Based on the keywords "{object_name}" and story type "{type_name}", please:
+1. Follow the selected story type to create the story
 2. Add a small learning point that fits naturally with the objects
 3. Emphasize the fun of the plot rather than the overall educational significance. Avoid straightforward reasoning.
+
+Word restrictions (MUST follow):
+- Avoid using the following words or similar inappropriate/risky terms: 
+  silly, stupid, dumb, idiot, hate, kill, die, blood, gun, weapon, scary monster, ghost, 
+  hurt badly, attack, hit hard, cry loudly, ugly, fat, lazy, weird, crazy, mad.
+- Use only positive, gentle, and child-friendly language.
+- Do not use any word that may cause fear, sadness, or negative feelings in young children.
+- Before output, please double-check your story to ensure none of these words appear.
 
 Writing tips for this age:
 - Use words like "because", "so", "that's why"
@@ -139,7 +169,8 @@ Ending (must include - for photo memory review style):
 - End with a gentle goodnight or a warm wish for tomorrow
 
 What to output:
-- Just the story and the matched story type. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
+- Just the story. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
+- Also include the matched story type at the beginning in parentheses, e.g., "(Type 1: Adventure Series)"
 Impotant: Please carefully check whether the word count meets the requirements.
 Not a lesson-teaching style, but one that captures children's interest.
 Now write a story for 4-6 year olds:
@@ -153,6 +184,7 @@ Style: Simple plot + Light reasoning + Feelings
 Length: 90-120 seconds (about 180-230 words)
 Structure: A few connected events
 Keywords: {object_name}
+Story Type: {type_name}
 Impotant: Please carefully check whether the word count meets the requirements.
 Not a lesson-teaching style, but one that captures children's interest.
 Story Types:
@@ -164,10 +196,18 @@ Universal story rules :
 - Introduce a "small change" every 20-30 seconds(about 40-60 words)
 - Get into the main event within the first 10 seconds(about 20 words)
 
-Based on the keywords "{object_name}", please:
-1. Pick the best story type from the four above
+Based on the keywords "{object_name}" and story type "{type_name}", please:
+1. Follow the selected story type to create the story
 2. Add a small learning point that fits naturally with the objects
 3. Emphasize the fun of the plot rather than the overall educational significance. Avoid straightforward reasoning.
+
+Word restrictions (MUST follow):
+- Avoid using the following words or similar inappropriate/risky terms: 
+  silly, stupid, dumb, idiot, hate, kill, die, blood, gun, weapon, scary monster, ghost, 
+  hurt badly, attack, hit hard, cry loudly, ugly, fat, lazy, weird, crazy, mad.
+- Use only positive, gentle, and child-friendly language.
+- Do not use any word that may cause fear, sadness, or negative feelings in young children.
+- Before output, please double-check your story to ensure none of these words appear.
 
 Writing tips for this age:
 - Include thoughts like "Why...?", "Then it understood...", "It felt..."
@@ -196,7 +236,8 @@ Ending (must include - for photo memory review style):
 - End with a gentle goodnight or a warm wish for tomorrow
 
 What to output:
-- Just the story and the matched story type. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
+- Just the story. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
+- Also include the matched story type at the beginning in parentheses, e.g., "(Type 1: Adventure Series)"
 Impotant: Please carefully check whether the word count meets the requirements.
 Not a lesson-teaching style, but one that captures children's interest.
 Now write a story for 6-8 year olds:
@@ -218,19 +259,21 @@ PROMPT_LIST = [
 # 统一入口函数
 # ============================================================
 
-def story_prompt(object_name, prompt_id=0):
+def story_prompt(object_name, prompt_id=0, story_type=3):
     """
     生成故事提示词消息
     
     Args:
         object_name: 关键词，如 "teddy bear, ball, sofa"
         prompt_id: 提示词ID，0=2-4岁，1=4-6岁，2=6-8岁
+        story_type: 故事类型ID，1=冒险串联型，2=魔法连接型，3=日常温暖型，4=搞笑荒诞型
     
     Returns:
         messages: 包含system和user消息的列表
     """
     
     all_types = get_all_type_desc()
+    type_name = get_type_name(story_type)
     
     prompt_info = None
     for item in PROMPT_LIST:
@@ -243,13 +286,14 @@ def story_prompt(object_name, prompt_id=0):
     
     user_content = prompt_info["prompt"].format(
         object_name=object_name,
-        all_types=all_types
+        all_types=all_types,
+        type_name=type_name
     )
     
     messages = [
         {
             "role": "system",
-            "content": "You are an experienced children's story writer. You know how to write for different ages — simple and bouncy for little ones, clear and curious for middle ones, thoughtful and warm for older ones. You are skilled at combining stories with given types (Adventure, Magic, Daily Warmth, Funny & Absurd)."
+            "content": "You are an experienced children's story writer. You know how to write for different ages — simple and bouncy for little ones, clear and curious for middle ones, thoughtful and warm for older ones. You are skilled at combining stories with given types (Adventure, Magic, Daily Warmth, Funny & Absurd). You always use positive, gentle, and child-friendly language, and strictly avoid any negative or potentially upsetting words (e.g., silly, stupid, hate, kill, scary monster, etc.)."
         },
         {
             "role": "user",
@@ -264,69 +308,77 @@ def story_prompt(object_name, prompt_id=0):
 # 测试代码
 # ============================================================
 
-# if __name__ == "__main__":
+if __name__ == "__main__":
     
-#     import time
-#     from langchain_community.chat_models import ChatTongyi
-#     from langchain.prompts import ChatPromptTemplate
+    import time
+    from langchain_community.chat_models import ChatTongyi
+    from langchain.prompts import ChatPromptTemplate
     
-#     API_KEY = "sk-7ccc67cdc36247668d55a0e37eda449c"
+    API_KEY = "sk-7ccc67cdc36247668d55a0e37eda449c"
     
-#     print("=" * 70)
-#     print("🐻 儿童故事生成助手 - 通义模型测试")
-#     print("=" * 70)
+    print("=" * 70)
+    print("🐻 儿童故事生成助手 - 通义模型测试")
+    print("=" * 70)
     
-#     # 测试词组7：季节主题
-#     test_cases = [
-#         {"id": 0, "name": "2-4岁测试", "object_name": "snowman, mittens, hot cocoa"},
-#         {"id": 1, "name": "4-6岁测试", "object_name": "umbrella, puddle, rain boots"},
-#         {"id": 2, "name": "6-8岁测试", "object_name": "kite, picnic basket, butterfly net"}
-#     ]
-
+    # 测试用例：不同年龄 + 不同类型
+    test_cases = [
+        # 2-4岁 + 冒险串联型
+        {"prompt_id": 0, "story_type": 1, "name": "2-4岁-冒险型", "object_name": "teddy bear, ball, sofa"},
+        # 4-6岁 + 魔法连接型
+        {"prompt_id": 1, "story_type": 2, "name": "4-6岁-魔法型", "object_name": "paper cup, flashlight, white wall"},
+        # 6-8岁 + 日常温暖型
+        {"prompt_id": 2, "story_type": 3, "name": "6-8岁-温暖型", "object_name": "old sneakers, medal, family photo"},
+        # 4-6岁 + 搞笑荒诞型
+        {"prompt_id": 1, "story_type": 4, "name": "4-6岁-搞笑型", "object_name": "toothbrush, jelly, alarm clock"}
+    ]
     
-#     for case in test_cases:
-#         print(f"\n{'='*70}")
-#         print(f"【{case['name']}】prompt_id={case['id']}")
-#         print(f"关键词: {case['object_name']}")
-#         print(f"{'='*70}")
+    for case in test_cases:
+        print(f"\n{'='*70}")
+        print(f"【{case['name']}】prompt_id={case['prompt_id']}, story_type={case['story_type']}")
+        print(f"关键词: {case['object_name']}")
+        print(f"{'='*70}")
         
-#         messages = story_prompt(case["object_name"], prompt_id=case["id"])
+        messages = story_prompt(
+            object_name=case["object_name"], 
+            prompt_id=case["prompt_id"],
+            story_type=case["story_type"]
+        )
         
-#         print(f"\n📝 提示词长度: {len(messages[1]['content'])} 字符")
-#         print("🤖 正在生成故事...")
+        print(f"\n📝 提示词长度: {len(messages[1]['content'])} 字符")
+        print("🤖 正在生成故事...")
         
-#         prompt_template = ChatPromptTemplate.from_messages([
-#             ("system", messages[0]["content"]),
-#             ("human", "{input}")
-#         ])
+        prompt_template = ChatPromptTemplate.from_messages([
+            ("system", messages[0]["content"]),
+            ("human", "{input}")
+        ])
         
-#         llm = ChatTongyi(
-#             model="qwen-plus",
-#             temperature=0.7,
-#             dashscope_api_key=API_KEY
-#         )
+        llm = ChatTongyi(
+            model="qwen-plus",
+            temperature=0.7,
+            dashscope_api_key=API_KEY
+        )
         
-#         start_time = time.time()
+        start_time = time.time()
         
-#         try:
-#             chain = prompt_template | llm
-#             result = chain.invoke({"input": messages[1]["content"]})
-#             end_time = time.time()
+        try:
+            chain = prompt_template | llm
+            result = chain.invoke({"input": messages[1]["content"]})
+            end_time = time.time()
             
-#             content = result.content
+            content = result.content
             
-#             print(f"\n✨ 生成的故事:")
-#             print("-" * 50)
-#             print(content)
-#             print("-" * 50)
+            print(f"\n✨ 生成的故事:")
+            print("-" * 50)
+            print(content)
+            print("-" * 50)
             
-#             print(f"\n⏱️ 耗时: {(end_time - start_time) * 1000:.0f} ms")
+            print(f"\n⏱️ 耗时: {(end_time - start_time) * 1000:.0f} ms")
             
-#         except Exception as e:
-#             print(f"❌ 调用失败: {e}")
+        except Exception as e:
+            print(f"❌ 调用失败: {e}")
         
-#         time.sleep(1)
+        time.sleep(1)
     
-#     print("\n" + "=" * 70)
-#     print("✅ 所有测试完成！")
-#     print("=" * 70)
+    print("\n" + "=" * 70)
+    print("✅ 所有测试完成！")
+    print("=" * 70)
