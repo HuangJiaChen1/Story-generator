@@ -1,5 +1,5 @@
 # ============================================================
-# story_app_gemini.py - 儿童故事生成交互页面
+# story_app_gemini.py - 儿童故事生成交互页面（Gemini 模型）
 # ============================================================
 
 import streamlit as st
@@ -12,14 +12,37 @@ from google.genai.types import GenerateContentConfig
 from story_prompt_English import story_prompt
 
 # ============================================================
-# 页面配置
+# 故事类型映射
 # ============================================================
 
-st.set_page_config(
-    page_title="儿童故事生成助手",
-    page_icon="🐻",
-    layout="centered"
-)
+STORY_TYPES = {
+    1: {"name": "🏔️ 冒险串联型", "desc": "物体拟人化，出发→遇见→解决→回归"},
+    2: {"name": "✨ 魔法连接型", "desc": "用魔法连接无关物体"},
+    3: {"name": "🤗 日常温暖型", "desc": "三个小伙伴都陪着你"},
+    4: {"name": "😂 搞笑荒诞型", "desc": "意外组合→奇怪事件→幽默结局"}
+}
+
+# ============================================================
+# AI 生成关键词的提示词
+# ============================================================
+
+KEYWORD_GENERATION_PROMPT = """You are a creative assistant for children's story keywords. 
+
+Please generate 3 sets of keywords (each set has 3 English words, separated by commas). 
+Each set should be a combination of 3 concrete nouns that children aged 2-8 would know and love.
+
+Examples of good keyword sets:
+- teddy bear, bouncy ball, cozy sofa
+- little watering can, sun hat, dandelion
+- night light, soft pillow, story book
+- rubber duck, bubble bath, fluffy towel
+
+Output format (each set on a new line):
+set1: word1, word2, word3
+set2: word1, word2, word3
+set3: word1, word2, word3
+
+Please generate 3 creative and fun keyword sets for children's stories:"""
 
 # ============================================================
 # 加载配置文件
@@ -67,6 +90,52 @@ def init_gemini_client():
         return None, None
 
 # ============================================================
+# 调用 Gemini 生成关键词
+# ============================================================
+
+def generate_keywords_gemini(client, model_name):
+    """调用 Gemini 生成3组关键词"""
+    
+    try:
+        response = client.models.generate_content(
+            model=model_name,
+            contents=KEYWORD_GENERATION_PROMPT,
+            config=GenerateContentConfig(
+                temperature=0.8,
+                max_output_tokens=500,
+                top_p=0.9,
+                top_k=40
+            ),
+        )
+        
+        return response.text.strip() if response.text else None
+            
+    except Exception as e:
+        st.error(f"生成关键词失败: {e}")
+        return None
+
+# ============================================================
+# 解析关键词
+# ============================================================
+
+def parse_keywords(text):
+    """从AI返回的文本中解析出关键词列表"""
+    keywords_list = []
+    lines = text.strip().split('\n')
+    
+    for line in lines:
+        line = line.strip()
+        if ':' in line:
+            parts = line.split(':', 1)
+            if len(parts) == 2:
+                kw_part = parts[1].strip()
+                words = [w.strip() for w in kw_part.split(',')[:3]]
+                if len(words) == 3:
+                    keywords_list.append(', '.join(words))
+    
+    return keywords_list
+
+# ============================================================
 # 英文文本分词统计函数
 # ============================================================
 
@@ -76,7 +145,7 @@ def count_english_words(text):
     return len(words)
 
 # ============================================================
-# 故事生成函数（max_tokens = 65536）
+# 故事生成函数
 # ============================================================
 
 def generate_story(system_prompt, user_prompt, client, model_name, temperature):
@@ -92,7 +161,6 @@ def generate_story(system_prompt, user_prompt, client, model_name, temperature):
     start_time = time.time()
     max_wait_time = 60
     
-    # 设置最大输出 tokens 为 65536
     max_tokens = 65536
     
     while True:
@@ -114,18 +182,15 @@ def generate_story(system_prompt, user_prompt, client, model_name, temperature):
             
             st.session_state.last_request_time = time.time()
             
-            # 检查 finish_reason
             if hasattr(response, 'candidates') and response.candidates:
                 for candidate in response.candidates:
                     if hasattr(candidate, 'finish_reason'):
                         finish_reason = candidate.finish_reason
                         if finish_reason == "MAX_TOKENS":
-                            # 如果超出，尝试增加（但 65536 已经是最大）
                             continue
                         elif finish_reason != "STOP":
                             print(f"finish_reason: {finish_reason}")
             
-            # 提取内容
             result_text = response.text
             if result_text is None and response.candidates:
                 parts = response.candidates[0].content.parts
@@ -150,7 +215,15 @@ def generate_story(system_prompt, user_prompt, client, model_name, temperature):
                 raise e
 
 # ============================================================
-# 初始化
+# 带类型参数的提示词包装函数
+# ============================================================
+
+def story_prompt_with_type(object_name, prompt_id=0, story_type=3):
+    """支持故事类型参数的提示词生成（直接调用 story_prompt 并注入类型）"""
+    return story_prompt(object_name, prompt_id, story_type)
+
+# ============================================================
+# 初始化 session state
 # ============================================================
 
 if "messages" not in st.session_state:
@@ -158,6 +231,13 @@ if "messages" not in st.session_state:
 
 if "last_request_time" not in st.session_state:
     st.session_state.last_request_time = 0
+
+if "generated_keywords" not in st.session_state:
+    st.session_state.generated_keywords = ""
+
+# ============================================================
+# 初始化 Gemini 客户端
+# ============================================================
 
 client, config = init_gemini_client()
 
@@ -175,12 +255,49 @@ with st.sidebar:
     st.caption(f"🤖 模型: {model_name}")
     st.divider()
     
+    # 年龄段选择
     age_label = st.selectbox("年龄段", ["2-4岁", "4-6岁", "6-8岁"], index=1)
     age_map = {"2-4岁": 0, "4-6岁": 1, "6-8岁": 2}
     prompt_id = age_map[age_label]
     
+    # 随机关键词按钮
+    st.divider()
+    st.subheader("🎲 随机关键词")
+    st.caption("AI 会生成3组关键词，你可以选择一组使用")
+    
+    if st.button("✨ 生成关键词", use_container_width=True):
+        with st.spinner("🤖 AI 正在生成关键词..."):
+            keywords_text = generate_keywords_gemini(client, model_name)
+            if keywords_text:
+                st.session_state.generated_keywords = keywords_text
+                st.rerun()
+    
+    # 故事类型选择
+    st.divider()
+    st.subheader("📖 故事类型")
+    story_type_options = list(STORY_TYPES.keys())
+    story_type_labels = [STORY_TYPES[t]["name"] for t in story_type_options]
+    
+    selected_type_label = st.selectbox(
+        "选择故事类型",
+        story_type_labels,
+        index=2,
+        help="选择不同的故事类型，生成不同风格的故事"
+    )
+    
+    for tid, tinfo in STORY_TYPES.items():
+        if tinfo["name"] == selected_type_label:
+            selected_story_type = tid
+            break
+    
+    st.caption(f"📝 {STORY_TYPES[selected_story_type]['desc']}")
+    
+    st.divider()
+    
+    # 温度参数
     temperature = st.slider("创意程度", 0.0, 1.0, 0.7, 0.1)
     st.divider()
+    
     st.caption("💡 输入英文关键词，如「teddy bear, ball, sofa」")
     
     if st.button("🗑️ 清空对话", use_container_width=True):
@@ -192,8 +309,9 @@ with st.sidebar:
 # ============================================================
 
 st.title("🐻 儿童故事生成助手")
-st.caption(f"当前模型：{model_name} | 年龄段：{age_label} | 创意程度：{temperature}")
+st.caption(f"当前模型：{model_name} | 年龄段：{age_label} | 创意程度：{temperature} | 故事类型：{STORY_TYPES[selected_story_type]['name']}")
 
+# 显示聊天历史（使用 chat_message）
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -201,7 +319,26 @@ for msg in st.session_state.messages:
             st.caption(f"📊 {msg['word_count']} words")
 
 # ============================================================
-# 用户输入
+# 显示生成的关键词（使用 expander 下拉框）
+# ============================================================
+
+if st.session_state.generated_keywords:
+    with st.expander("🎲 AI 生成的关键词（点击展开查看）", expanded=False):
+        st.caption("复制下面任意一组关键词，粘贴到输入框中")
+        
+        keywords_list = parse_keywords(st.session_state.generated_keywords)
+        
+        if keywords_list:
+            cols = st.columns(len(keywords_list))
+            for i, (col, kw) in enumerate(zip(cols, keywords_list)):
+                with col:
+                    st.markdown(f"**第 {i+1} 组**")
+                    st.code(kw, language="text")
+        else:
+            st.text(st.session_state.generated_keywords)
+
+# ============================================================
+# 用户输入（使用 chat_input，自动固定在底部）
 # ============================================================
 
 user_input = st.chat_input("输入英文关键词，例如：teddy bear, ball, sofa")
@@ -215,7 +352,8 @@ if user_input:
     with st.chat_message("assistant"):
         with st.spinner("✨ 正在创作故事..."):
             try:
-                messages = story_prompt(user_input, prompt_id=prompt_id)
+                # 调用 story_prompt 函数（支持类型参数）
+                messages = story_prompt(user_input, prompt_id=prompt_id, story_type=selected_story_type)
                 
                 system_prompt = messages[0]["content"]
                 user_prompt = messages[1]["content"]
@@ -237,10 +375,13 @@ if user_input:
                 st.caption(f"⏱️ {elapsed_ms}ms | 📊 {word_count} words")
                 
                 st.session_state.messages.append({
-                    "role": "assistant", 
+                    "role": "assistant",
                     "content": story,
                     "word_count": word_count
                 })
+                
+                # 清空输入框（通过重新运行）
+                st.rerun()
                 
             except Exception as e:
                 st.error(f"生成失败：{e}")
