@@ -98,7 +98,7 @@ def generate_keywords_gemini(client, model_name):
             contents=KEYWORD_GENERATION_PROMPT,
             config=GenerateContentConfig(
                 temperature=0.8,
-                max_output_tokens=1024,
+                max_output_tokens=2048,
                 top_p=0.9,
                 top_k=40
             ),
