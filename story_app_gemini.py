@@ -9,7 +9,8 @@ import json
 import os
 from google import genai
 from google.genai.types import GenerateContentConfig
-from story_prompt_English import story_prompt
+from story_prompt_English_copy import story_prompt
+from image_generator_gemini import generate_story_images
 
 # ============================================================
 # 故事类型映射
@@ -20,6 +21,16 @@ STORY_TYPES = {
     2: {"name": "✨ 魔法连接型", "desc": "用魔法连接无关物体"},
     3: {"name": "🤗 日常温暖型", "desc": "三个小伙伴都陪着你"},
     4: {"name": "😂 搞笑荒诞型", "desc": "意外组合→奇怪事件→幽默结局"}
+}
+
+# ============================================================
+# 结尾风格映射
+# ============================================================
+
+ENDING_STYLES = {
+    "bedtime": {"name": "🌙 睡前温馨", "desc": "温馨舒适，晚安祝福"},
+    "daytime": {"name": "☀️ 日间活力", "desc": "鼓励探索，期待冒险"},
+    "weekend": {"name": "🎉 周末欢乐", "desc": "家庭时光，欢乐氛围"}
 }
 
 # ============================================================
@@ -302,6 +313,26 @@ with st.sidebar:
     
     st.caption(f"📝 {STORY_TYPES[selected_story_type]['desc']}")
     
+    # 结尾风格选择
+    st.divider()
+    st.subheader("🎭 结尾风格")
+    ending_style_options = list(ENDING_STYLES.keys())
+    ending_style_labels = [ENDING_STYLES[s]["name"] for s in ending_style_options]
+    
+    selected_ending_label = st.selectbox(
+        "选择结尾风格",
+        ending_style_labels,
+        index=0,
+        help="选择不同的结尾风格，适应不同场景"
+    )
+    
+    for sid, sinfo in ENDING_STYLES.items():
+        if sinfo["name"] == selected_ending_label:
+            selected_ending_style = sid
+            break
+    
+    st.caption(f"📝 {ENDING_STYLES[selected_ending_style]['desc']}")
+    
     st.divider()
     
     # 温度参数
@@ -319,7 +350,7 @@ with st.sidebar:
 # ============================================================
 
 st.title("🐻 儿童故事生成助手")
-st.caption(f"当前模型：{model_name} | 年龄段：{age_label} | 创意程度：{temperature} | 故事类型：{STORY_TYPES[selected_story_type]['name']}")
+st.caption(f"当前模型：{model_name} | 年龄段：{age_label} | 创意程度：{temperature} | 故事类型：{STORY_TYPES[selected_story_type]['name']} | 结尾风格：{ENDING_STYLES[selected_ending_style]['name']}")
 
 # 显示聊天历史
 for msg in st.session_state.messages:
@@ -362,7 +393,7 @@ if user_input:
     with st.chat_message("assistant"):
         with st.spinner("✨ 正在创作故事..."):
             try:
-                messages = story_prompt(user_input, prompt_id=prompt_id, story_type=selected_story_type)
+                messages = story_prompt(user_input, prompt_id=prompt_id, story_type=selected_story_type, scene_type=selected_ending_style)
                 
                 system_prompt = messages[0]["content"]
                 user_prompt = messages[1]["content"]
@@ -380,8 +411,25 @@ if user_input:
                 word_count = count_english_words(story)
                 elapsed_ms = int((end_time - start_time) * 1000)
                 
+                # 显示故事
                 st.markdown(story)
                 st.caption(f"⏱️ {elapsed_ms}ms | 📊 {word_count} words")
+                
+                # 生成故事插图（最多3张）
+                images = []
+                with st.spinner("🖼️ 正在生成故事插图..."):
+                    try:
+                        images = generate_story_images(story, num_images=3)
+                        if images:
+                            st.subheader("🖼️ 故事插图")
+                            cols = st.columns(min(len(images), 3))
+                            for i, (col, img_url) in enumerate(zip(cols, images)):
+                                with col:
+                                    st.image(img_url, caption=f"插图 {i+1}", use_column_width=True)
+                        else:
+                            st.info("📷 图片生成失败或网络不可用")
+                    except Exception as e:
+                        st.info(f"📷 图片生成失败: {e}")
                 
                 st.session_state.messages.append({
                     "role": "assistant",
