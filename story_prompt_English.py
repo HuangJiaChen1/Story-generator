@@ -14,6 +14,91 @@ TYPE_DESC_MAP = {
 }
 
 
+# ============================================================
+# 结尾风格配置（支持不同场景）
+# ============================================================
+
+ENDING_STYLES = {
+    "bedtime": """Ending (must include - for photo memory review style):
+- 1-2 sentences connecting to the child's real experience today (e.g., "Do you remember when you... today?")
+- 1-2 warm, comforting sentences to help the child recall happy moments
+- End with a gentle goodnight or a warm wish for tomorrow""",
+    
+    "daytime": """Ending (must include - for active daytime style):
+- 1-2 sentences encouraging the child to explore or play
+- 1-2 sentences linking to things they can do later today
+- End with excitement for the next adventure or activity""",
+    
+    "weekend": """Ending (must include - for weekend fun style):
+- 1-2 sentences about fun weekend activities or plans
+- 1-2 sentences about spending time with family or friends
+- End with looking forward to tomorrow's fun"""
+}
+
+
+def get_ending_style(scene_type: str) -> str:
+    """根据场景类型获取结尾风格"""
+    return ENDING_STYLES.get(scene_type, ENDING_STYLES["bedtime"])
+
+
+# ============================================================
+# 故事类型专属开头模板（与故事类型一一对应）
+# ============================================================
+
+STORY_TYPE_OPENINGS = {
+    1: {  # 冒险串联型
+        "name": "冒险开场",
+        "format": """Opening Format (MUST use this exact format):
+"Ready for an adventure? Today {keywords} are going on a big journey! Want to come along? "
+
+Opening Guidance:
+- After the fixed opening, introduce the starting point of the adventure
+- Set up a goal or destination for the characters
+- Use energetic and exciting language to build anticipation""",
+        "description": "充满活力的冒险开场，适合探险主题"
+    },
+    2: {  # 魔法连接型
+        "name": "魔法开场",
+        "format": """Opening Format (MUST use this exact format):
+"Guess what magical secret {keywords} share? Let me tell you their mysterious story! "
+
+Opening Guidance:
+- After the fixed opening, hint at the magical connection between objects
+- Create a sense of wonder and mystery
+- Build curiosity about what will happen next""",
+        "description": "神秘奇幻的魔法开场，适合魔法主题"
+    },
+    3: {  # 日常温暖型
+        "name": "温馨开场",
+        "format": """Opening Format (MUST use this exact format):
+"Hi there! Do you know how special {keywords} are? Let me tell you a warm little story about them. "
+
+Opening Guidance:
+- After the fixed opening, connect to everyday experiences
+- Highlight the emotional bond between the objects
+- Create a cozy and comforting atmosphere""",
+        "description": "温暖亲切的日常开场，适合温馨主题"
+    },
+    4: {  # 搞笑荒诞型
+        "name": "幽默开场",
+        "format": """Opening Format (MUST use this exact format):
+"Get ready to laugh! {keywords} are about to do something silly and funny! Want to see? "
+
+Opening Guidance:
+- After the fixed opening, set up a funny situation
+- Use playful and absurd language
+- Make the child smile and feel lighthearted""",
+        "description": "轻松幽默的搞笑开场，适合荒诞主题"
+    }
+}
+
+
+def get_opening_by_story_type(story_type: int) -> str:
+    """根据故事类型获取对应的开头模板"""
+    opening_info = STORY_TYPE_OPENINGS.get(story_type, STORY_TYPE_OPENINGS[3])
+    return opening_info["format"]
+
+
 def get_all_type_desc():
     """获取所有类型说明（英文）"""
     desc = ""
@@ -86,18 +171,9 @@ Writing tips for this age:
 - Use many onomatopoeic and mimetic words
 - Avoid complex plot twists
 
-Opening Format (MUST use this exact format):
-"Hey little friend, remember we talked about [keywords]? Do you want to hear a story about them? "
+{opening_style}
 
-Opening Guidance:
-- After the fixed opening, continue with 1-2 short sentences
-- Make the child feel curious and comfortable
-- Jump right into the action
-
-Ending (must include - for photo memory review style):
-- 1-2 sentences connecting to the child's real experience today (e.g., "Do you remember when you... today?")
-- 1-2 warm, comforting sentences to help the child recall happy moments
-- End with a gentle goodnight or a warm wish for tomorrow
+{ending_style}
 
 What to output:
 - Just the story. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
@@ -155,18 +231,9 @@ Writing tips for this age:
 - Use many onomatopoeic and mimetic words (e.g., "whoosh", "click", "tap tap")
 - Avoid complex plot twists or unexpected turns
 
-Opening Format (MUST use this exact format):
-"Hey little friend, remember we talked about [keywords]? Do you want to hear a story about them? "
+{opening_style}
 
-Opening Guidance:
-- After the fixed opening, continue with 2-3 sentences
-- Ask a question, set up a small mystery, or introduce the character
-- Make the child feel part of the story
-
-Ending (must include - for photo memory review style):
-- 1-2 sentences connecting to the child's real experience today (e.g., "Do you remember when you... today?")
-- 1-2 warm, comforting sentences to help the child recall happy moments
-- End with a gentle goodnight or a warm wish for tomorrow
+{ending_style}
 
 What to output:
 - Just the story. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
@@ -222,18 +289,9 @@ Writing tips for this age:
 - Include moderate psychological depiction and reasoning processes
 - Avoid preaching — let characters discover answers on their own
 
-Opening Format (MUST use this exact format):
-"Hey little friend, remember we talked about [keywords]? Do you want to hear a story about them? "
+{opening_style}
 
-Opening Guidance:
-- After the fixed opening, continue with 3-4 sentences
-- Set the scene, introduce a relatable character, or ask an interesting question
-- Build a little anticipation
-
-Ending (must include - for photo memory review style):
-- 1-2 sentences connecting to the child's real experience today (e.g., "Do you remember when you... today?")
-- 1-2 warm, comforting sentences to help the child recall happy moments
-- End with a gentle goodnight or a warm wish for tomorrow
+{ending_style}
 
 What to output:
 - Just the story. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
@@ -259,7 +317,7 @@ PROMPT_LIST = [
 # 统一入口函数
 # ============================================================
 
-def story_prompt(object_name, prompt_id=0, story_type=3):
+def story_prompt(object_name, prompt_id=0, story_type=3, scene_type="bedtime"):
     """
     生成故事提示词消息
     
@@ -267,6 +325,7 @@ def story_prompt(object_name, prompt_id=0, story_type=3):
         object_name: 关键词，如 "teddy bear, ball, sofa"
         prompt_id: 提示词ID，0=2-4岁，1=4-6岁，2=6-8岁
         story_type: 故事类型ID，1=冒险串联型，2=魔法连接型，3=日常温暖型，4=搞笑荒诞型
+        scene_type: 场景类型，可选值: bedtime(睡前), daytime(日间), weekend(周末)
     
     Returns:
         messages: 包含system和user消息的列表
@@ -274,6 +333,10 @@ def story_prompt(object_name, prompt_id=0, story_type=3):
     
     all_types = get_all_type_desc()
     type_name = get_type_name(story_type)
+    ending_style = get_ending_style(scene_type)
+    
+    # 根据故事类型自动匹配开头风格
+    opening_style = get_opening_by_story_type(story_type)
     
     prompt_info = None
     for item in PROMPT_LIST:
@@ -287,7 +350,9 @@ def story_prompt(object_name, prompt_id=0, story_type=3):
     user_content = prompt_info["prompt"].format(
         object_name=object_name,
         all_types=all_types,
-        type_name=type_name
+        type_name=type_name,
+        ending_style=ending_style,
+        opening_style=opening_style
     )
     
     messages = [
@@ -320,28 +385,29 @@ if __name__ == "__main__":
     print("🐻 儿童故事生成助手 - 通义模型测试")
     print("=" * 70)
     
-    # 测试用例：不同年龄 + 不同类型
+    # 测试用例：不同年龄 + 不同类型 + 不同场景
     test_cases = [
-        # 2-4岁 + 冒险串联型
-        {"prompt_id": 0, "story_type": 1, "name": "2-4岁-冒险型", "object_name": "teddy bear, ball, sofa"},
-        # 4-6岁 + 魔法连接型
-        {"prompt_id": 1, "story_type": 2, "name": "4-6岁-魔法型", "object_name": "paper cup, flashlight, white wall"},
-        # 6-8岁 + 日常温暖型
-        {"prompt_id": 2, "story_type": 3, "name": "6-8岁-温暖型", "object_name": "old sneakers, medal, family photo"},
-        # 4-6岁 + 搞笑荒诞型
-        {"prompt_id": 1, "story_type": 4, "name": "4-6岁-搞笑型", "object_name": "toothbrush, jelly, alarm clock"}
+        # 2-4岁 + 冒险串联型 + 睡前场景
+        {"prompt_id": 0, "story_type": 1, "scene_type": "bedtime", "name": "2-4岁-冒险型-睡前", "object_name": "teddy bear, ball, sofa"},
+        # 4-6岁 + 魔法连接型 + 日间场景
+        {"prompt_id": 1, "story_type": 2, "scene_type": "daytime", "name": "4-6岁-魔法型-日间", "object_name": "paper cup, flashlight, white wall"},
+        # 6-8岁 + 日常温暖型 + 周末场景
+        {"prompt_id": 2, "story_type": 3, "scene_type": "weekend", "name": "6-8岁-温暖型-周末", "object_name": "old sneakers, medal, family photo"},
+        # 4-6岁 + 搞笑荒诞型 + 睡前场景（默认）
+        {"prompt_id": 1, "story_type": 4, "scene_type": "bedtime", "name": "4-6岁-搞笑型-睡前", "object_name": "toothbrush, jelly, alarm clock"}
     ]
     
     for case in test_cases:
         print(f"\n{'='*70}")
-        print(f"【{case['name']}】prompt_id={case['prompt_id']}, story_type={case['story_type']}")
+        print(f"【{case['name']}】prompt_id={case['prompt_id']}, story_type={case['story_type']}, scene_type={case.get('scene_type', 'bedtime')}")
         print(f"关键词: {case['object_name']}")
         print(f"{'='*70}")
         
         messages = story_prompt(
             object_name=case["object_name"], 
             prompt_id=case["prompt_id"],
-            story_type=case["story_type"]
+            story_type=case["story_type"],
+            scene_type=case.get("scene_type", "bedtime")
         )
         
         print(f"\n📝 提示词长度: {len(messages[1]['content'])} 字符")
