@@ -8,6 +8,7 @@
   "high_reasoning_model": "gemini-3-pro-preview",
   "vision_model_name": "gemini-2.5-flash-image",
   "temperature": 0.3,
-  "max_tokens": 1000,
-  "wonderlens_url": "https://0636fd4d517e5-pro-hk.51wanxue.com/wonderlens"
+  "max_tokens": 4096,
+  "wonderlens_url": "https://0636fd4d517e5-pro-hk.51wanxue.com/wonderlens",
+  "tts_url": "https://0636fd4d517e5-pro-hk.51wanxue.com/wonderlens-api"
 }
