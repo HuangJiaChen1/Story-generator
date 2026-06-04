@@ -82,7 +82,7 @@ Opening Guidance:
     4: {  # 搞笑荒诞型
         "name": "幽默开场",
         "format": """Opening Format (MUST use this exact format):
-"Get ready to laugh! {keywords} are about to do something silly and funny! Want to see? "
+"Get ready to laugh! {keywords} are about to do something funny! Want to see? "
 
 Opening Guidance:
 - After the fixed opening, set up a funny situation
@@ -177,7 +177,6 @@ Writing tips for this age:
 
 What to output:
 - Just the story. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
-- Also include the matched story type at the beginning in parentheses, e.g., "(Type 1: Adventure Series)"
 Impotant: Please carefully check whether the word count meets the requirements.
 Not a lesson-teaching style, but one that captures children's interest.
 Now write a story for 2-4 year olds:
@@ -237,7 +236,6 @@ Writing tips for this age:
 
 What to output:
 - Just the story. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
-- Also include the matched story type at the beginning in parentheses, e.g., "(Type 1: Adventure Series)"
 Impotant: Please carefully check whether the word count meets the requirements.
 Not a lesson-teaching style, but one that captures children's interest.
 Now write a story for 4-6 year olds:
@@ -295,7 +293,6 @@ Writing tips for this age:
 
 What to output:
 - Just the story. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
-- Also include the matched story type at the beginning in parentheses, e.g., "(Type 1: Adventure Series)"
 Impotant: Please carefully check whether the word count meets the requirements.
 Not a lesson-teaching style, but one that captures children's interest.
 Now write a story for 6-8 year olds:
