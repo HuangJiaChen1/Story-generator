@@ -9,7 +9,7 @@ import json
 import os
 from google import genai
 from google.genai.types import GenerateContentConfig
-from story_prompt_English_copy import story_prompt
+from story_prompt_English import story_prompt
 from image_generator_gemini import generate_story_images
 from tts_client import synthesize_audio, estimate_audio_duration, format_duration, amplify_audio
 
