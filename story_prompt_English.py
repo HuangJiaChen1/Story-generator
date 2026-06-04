@@ -177,6 +177,7 @@ Writing tips for this age:
 
 What to output:
 - Just the story. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
+- MUST use line breaks between paragraphs (at least one blank line between each paragraph).
 Impotant: Please carefully check whether the word count meets the requirements.
 Not a lesson-teaching style, but one that captures children's interest.
 Now write a story for 2-4 year olds:
@@ -236,6 +237,7 @@ Writing tips for this age:
 
 What to output:
 - Just the story. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
+- MUST use line breaks between paragraphs (at least one blank line between each paragraph).
 Impotant: Please carefully check whether the word count meets the requirements.
 Not a lesson-teaching style, but one that captures children's interest.
 Now write a story for 4-6 year olds:
@@ -293,6 +295,7 @@ Writing tips for this age:
 
 What to output:
 - Just the story. No extra words, no labels like "Lesson:", "Warm words:", or "Question:".
+- MUST use line breaks between paragraphs (at least one blank line between each paragraph).
 Impotant: Please carefully check whether the word count meets the requirements.
 Not a lesson-teaching style, but one that captures children's interest.
 Now write a story for 6-8 year olds:
