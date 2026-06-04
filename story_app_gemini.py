@@ -11,6 +11,7 @@ from google import genai
 from google.genai.types import GenerateContentConfig
 from story_prompt_English_copy import story_prompt
 from image_generator_gemini import generate_story_images
+from tts_client import synthesize_audio, estimate_audio_duration, format_duration, amplify_audio
 
 # ============================================================
 # 故事类型映射
@@ -59,13 +60,21 @@ def load_config():
     """加载 config.json 配置文件"""
     config_path = os.path.join(os.path.dirname(__file__), "config.json")
     if not os.path.exists(config_path):
-        st.error(f"配置文件不存在: {config_path}")
+        st.error(f"❌ 配置文件不存在：{config_path}")
+        st.info("📋 请确保 config.json 文件存在于项目根目录")
         return None
     
-    with open(config_path, "r", encoding="utf-8") as f:
-        cfg = json.load(f)
-    
-    return cfg
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            cfg = json.load(f)
+        st.success(f"✅ 配置文件加载成功")
+        return cfg
+    except json.JSONDecodeError as e:
+        st.error(f"❌ 配置文件格式错误：{e}")
+        return None
+    except Exception as e:
+        st.error(f"❌ 加载配置文件失败：{e}")
+        return None
 
 # ============================================================
 # 初始化 Gemini 客户端
@@ -83,6 +92,11 @@ def init_gemini_client():
     
     if not project:
         project = "elaborate-baton-480304-r8"
+        st.warning(f"⚠️ 配置文件中未设置项目，使用默认项目：{project}")
+    
+    st.info(f"🔧 正在初始化 Gemini 客户端...")
+    st.info(f"   📦 项目：{project}")
+    st.info(f"   📍 位置：{location}")
     
     try:
         client = genai.Client(
@@ -90,18 +104,19 @@ def init_gemini_client():
             project=project,
             location=location,
         )
-        st.success(f"✅ Gemini 客户端初始化成功 | 项目: {project} | 位置: {location}")
+        st.success(f"✅ Gemini 客户端初始化成功")
         return client, cfg
     except Exception as e:
-        st.error(f"初始化 Gemini 客户端失败: {e}")
-        return None, None
+            st.error(f"❌ 初始化失败：{str(e)}")
+            st.info("🔍 请检查网络连接和服务配置")
+            return None, None
 
 # ============================================================
 # 调用 Gemini 生成关键词
 # ============================================================
 
 def generate_keywords_gemini(client, model_name):
-    """调用 Gemini 生成3组关键词"""
+    """调用 Gemini 生成 3 组关键词"""
     
     try:
         response = client.models.generate_content(
@@ -129,7 +144,7 @@ def generate_keywords_gemini(client, model_name):
         return None
             
     except Exception as e:
-        st.error(f"生成关键词失败: {e}")
+        st.error(f"生成关键词失败：{e}")
         return None
 
 # ============================================================
@@ -137,7 +152,7 @@ def generate_keywords_gemini(client, model_name):
 # ============================================================
 
 def parse_keywords(text):
-    """从AI返回的文本中解析出关键词列表"""
+    """从 AI 返回的文本中解析出关键词列表"""
     keywords_list = []
     lines = text.strip().split('\n')
     
@@ -208,37 +223,90 @@ def generate_story(system_prompt, user_prompt, client, model_name, temperature):
             
             st.session_state.last_request_time = time.time()
             
-            if hasattr(response, 'candidates') and response.candidates:
-                for candidate in response.candidates:
-                    if hasattr(candidate, 'finish_reason'):
-                        finish_reason = candidate.finish_reason
-                        if finish_reason == "MAX_TOKENS":
-                            continue
-                        elif finish_reason != "STOP":
-                            print(f"finish_reason: {finish_reason}")
-            
             result_text = response.text
             if result_text is None and response.candidates:
                 parts = response.candidates[0].content.parts
                 if parts:
                     result_text = "".join([p.text for p in parts if p.text])
             
-            return result_text.strip() if result_text else ""
+            if result_text:
+                return result_text.strip()
+            else:
+                raise Exception("未能从响应中提取文本内容")
             
         except Exception as e:
             error_msg = str(e)
+            elapsed_total = time.time() - start_time
             
             if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
                 retry_count += 1
-                elapsed_total = time.time() - start_time
                 
                 if elapsed_total + wait_time > max_wait_time:
-                    raise Exception(f"API 繁忙，请稍后再试")
+                    raise Exception("API 繁忙，请稍后再试")
                 
                 wait_time = min(wait_time * 2, 10)
                 time.sleep(wait_time)
             else:
                 raise e
+
+# ============================================================
+# 故事生成主函数
+# ============================================================
+
+def process_story_generation(user_input, prompt_id, selected_story_type, selected_ending_style, client, model_name, temperature, age_group):
+    """处理故事生成的完整流程"""
+    try:
+        with st.spinner("🎨 AI 正在创作故事..."):
+            # 步骤 1：生成提示词
+            messages = story_prompt(user_input, prompt_id=prompt_id, story_type=selected_story_type, scene_type=selected_ending_style)
+            system_prompt = messages[0]["content"]
+            user_prompt = messages[1]["content"]
+            
+            # 步骤 2：调用 AI 生成故事
+            start_time = time.time()
+            story = generate_story(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                client=client,
+                model_name=model_name,
+                temperature=temperature
+            )
+            end_time = time.time()
+            elapsed_ms = int((end_time - start_time) * 1000)
+        
+        if not story:
+            st.error("❌ 故事生成结果为空")
+            return "生成失败：故事内容为空", 0, []
+        
+        word_count = count_english_words(story)
+        
+        # 显示故事
+        st.markdown(story)
+        st.caption(f"⏱️ {elapsed_ms}ms | 📊 {word_count} words")
+        
+        # 生成故事插图
+        images = []
+        with st.spinner("🖼️ 正在绘制插图..."):
+            images = generate_story_images(story, num_images=3, age_group=age_group)
+        
+        if images:
+            st.subheader("🖼️ 故事插图")
+            for i, img_info in enumerate(images):
+                img_url = img_info.get('image')
+                if img_url and img_url.startswith("data:image/"):
+                    st.image(img_url, caption=f"插图 {i+1}", use_container_width=True)
+                    scene_text = img_info.get('scene', '未知场景')
+                    if "..." in scene_text:
+                        scene_text = scene_text.split("...")[0].strip()
+                    st.markdown(f"**📖 插图 {i+1} 情节:** {scene_text}")
+                    st.divider()
+        
+        return story, word_count, images
+        
+    except Exception as e:
+        st.error(f"❌ 生成失败：{e}")
+        st.info("🔍 请检查网络连接")
+        return None, 0, []
 
 # ============================================================
 # 初始化 session state
@@ -270,18 +338,18 @@ model_name = config.get("model_name", "gemini-3.5-flash")
 
 with st.sidebar:
     st.header("⚙️ 设置")
-    st.caption(f"🤖 模型: {model_name}")
+    st.caption(f"🤖 模型：{model_name}")
     st.divider()
     
     # 年龄段选择
-    age_label = st.selectbox("年龄段", ["2-4岁", "4-6岁", "6-8岁"], index=1)
-    age_map = {"2-4岁": 0, "4-6岁": 1, "6-8岁": 2}
+    age_label = st.selectbox("年龄段", ["2-4 岁", "4-6 岁", "6-8 岁"], index=1)
+    age_map = {"2-4 岁": 0, "4-6 岁": 1, "6-8 岁": 2}
     prompt_id = age_map[age_label]
     
     # 随机关键词按钮
     st.divider()
     st.subheader("🎲 随机关键词")
-    st.caption("AI 会生成3组关键词，你可以选择一组使用")
+    st.caption("AI 会生成 3 组关键词，你可以选择一组使用")
     
     if st.button("✨ 生成关键词", use_container_width=True):
         with st.spinner("🤖 AI 正在生成关键词..."):
@@ -353,11 +421,37 @@ st.title("🐻 儿童故事生成助手")
 st.caption(f"当前模型：{model_name} | 年龄段：{age_label} | 创意程度：{temperature} | 故事类型：{STORY_TYPES[selected_story_type]['name']} | 结尾风格：{ENDING_STYLES[selected_ending_style]['name']}")
 
 # 显示聊天历史
-for msg in st.session_state.messages:
+for idx, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
-        if msg["role"] == "assistant" and "word_count" in msg:
-            st.caption(f"📊 {msg['word_count']} words")
+        if msg["role"] == "assistant":
+            if "word_count" in msg:
+                st.caption(f"📊 {msg['word_count']} words")
+            
+            # 显示图片
+            if "images" in msg and msg["images"]:
+                st.subheader("🖼️ 故事插图")
+                for i, img_info in enumerate(msg["images"]):
+                    img_url = img_info.get('image')
+                    if img_url and img_url.startswith("data:image/"):
+                        st.image(img_url, caption=f"插图 {i+1}", use_container_width=True)
+                        scene_text = img_info.get('scene', '未知场景')
+                        if "..." in scene_text:
+                            scene_text = scene_text.split("...")[0].strip()
+                        st.markdown(f"**📖 插图 {i+1} 情节:** {scene_text}")
+                        st.divider()
+            
+            # 显示音频
+            if "audio" in msg and msg["audio"]:
+                st.subheader("🔊 故事朗读")
+                st.audio(msg["audio"], format="audio/wav")
+                st.download_button(
+                    label="📥 下载音频文件",
+                    data=msg["audio"],
+                    file_name="story_audio.wav",
+                    mime="audio/wav",
+                    key=f"download_audio_{idx}"
+                )
 
 # ============================================================
 # 显示生成的关键词
@@ -391,55 +485,50 @@ if user_input:
     st.session_state.messages.append({"role": "user", "content": f"关键词：{user_input}"})
     
     with st.chat_message("assistant"):
-        with st.spinner("✨ 正在创作故事..."):
-            try:
-                messages = story_prompt(user_input, prompt_id=prompt_id, story_type=selected_story_type, scene_type=selected_ending_style)
-                
-                system_prompt = messages[0]["content"]
-                user_prompt = messages[1]["content"]
-                
-                start_time = time.time()
-                story = generate_story(
-                    system_prompt=system_prompt,
-                    user_prompt=user_prompt,
-                    client=client,
-                    model_name=model_name,
-                    temperature=temperature
-                )
-                end_time = time.time()
-                
-                word_count = count_english_words(story)
-                elapsed_ms = int((end_time - start_time) * 1000)
-                
-                # 显示故事
-                st.markdown(story)
-                st.caption(f"⏱️ {elapsed_ms}ms | 📊 {word_count} words")
-                
-                # 生成故事插图（最多3张）
-                images = []
-                with st.spinner("🖼️ 正在生成故事插图..."):
-                    try:
-                        images = generate_story_images(story, num_images=3)
-                        if images:
-                            st.subheader("🖼️ 故事插图")
-                            cols = st.columns(min(len(images), 3))
-                            for i, (col, img_url) in enumerate(zip(cols, images)):
-                                with col:
-                                    st.image(img_url, caption=f"插图 {i+1}", use_column_width=True)
-                        else:
-                            st.info("📷 图片生成失败或网络不可用")
-                    except Exception as e:
-                        st.info(f"📷 图片生成失败: {e}")
-                
-                st.session_state.messages.append({
-                    "role": "assistant",
-                    "content": story,
-                    "word_count": word_count
-                })
-                
-            except Exception as e:
-                st.error(f"生成失败：{e}")
-                st.info("请稍后再试或检查网络连接")
+        story, word_count, images = process_story_generation(
+                user_input=user_input,
+                prompt_id=prompt_id,
+                selected_story_type=selected_story_type,
+                selected_ending_style=selected_ending_style,
+                client=client,
+                model_name=model_name,
+                temperature=temperature,
+                age_group=age_label.replace(" 岁", "")  # 转换为 "2-4", "4-6", "6-8" 格式
+            )
+        
+        if story:
+            # TTS 音频生成
+            audio_bytes = None
+            with st.spinner("正在生成语音..."):
+                try:
+                    # 根据年龄段设置 age_tier（API仅支持1和2）
+                    age_tier = 1 if "2-4" in age_label else 2
+                    # 添加音量放大（3倍），解决音量过小问题
+                    audio_bytes = synthesize_audio(story, age_tier=age_tier, amplify_gain=3.0)
+                    
+                    # 显示音频播放器
+                    st.audio(audio_bytes, format="audio/wav")
+                    
+                    # 提供下载按钮作为备选方案
+                    st.download_button(
+                        label="📥 下载音频文件",
+                        data=audio_bytes,
+                        file_name="story_audio.wav",
+                        mime="audio/wav"
+                    )
+                    
+                    st.success("✅ 语音生成成功！")
+                except Exception as e:
+                    st.warning(f"⚠️ 语音生成失败：{e}")
+            
+            # 保存到历史记录（包含图片和音频）
+            st.session_state.messages.append({
+                "role": "assistant",
+                "content": story,
+                "word_count": word_count,
+                "images": images,
+                "audio": audio_bytes
+            })
 
 # ============================================================
 # 页脚
