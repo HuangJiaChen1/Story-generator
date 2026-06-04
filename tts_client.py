@@ -88,8 +88,9 @@ def synthesize_audio_streaming(text: str, age_tier: int = 2, speed: float = DEFA
         print("[TTS Debug] One-Shot 接口请求URL: " + url)
         print("[TTS Debug] 请求体: " + json.dumps(payload, indent=2))
     
-    max_retries = 3
+    max_retries = 5  # 增加重试次数
     last_exception = None
+    import time
     
     for attempt in range(max_retries):
         try:
@@ -107,10 +108,12 @@ def synthesize_audio_streaming(text: str, age_tier: int = 2, speed: float = DEFA
             if response.ok:
                 return response.content
             elif response.status_code == 504:
-                # 服务端超时，重试
+                # 服务端超时，重试（指数退避）
+                wait_time = 2 ** attempt  # 1, 2, 4, 8, 16秒
                 last_exception = Exception(f"TTS 请求超时（第{attempt+1}次尝试）")
                 if debug:
-                    print(f"[TTS Debug] 超时，等待后重试...")
+                    print(f"[TTS Debug] 超时，等待 {wait_time} 秒后重试...")
+                time.sleep(wait_time)
                 continue
             else:
                 error_msg = "TTS 请求失败，状态码: " + str(response.status_code)
@@ -126,12 +129,181 @@ def synthesize_audio_streaming(text: str, age_tier: int = 2, speed: float = DEFA
                 raise Exception(error_msg)
         
         except requests.exceptions.RequestException as e:
+            # 请求异常，重试（指数退避）
+            wait_time = 2 ** attempt
             last_exception = Exception(f"TTS 请求异常（第{attempt+1}次尝试）: " + str(e))
             if debug:
-                print(f"[TTS Debug] 请求异常: {e}")
+                print(f"[TTS Debug] 请求异常: {e}, 等待 {wait_time} 秒后重试...")
+            time.sleep(wait_time)
             continue
     
     # 所有重试都失败
+    raise last_exception or Exception("TTS 请求失败，所有重试都已耗尽")
+
+
+def synthesize_audio_streaming_sse(text: str, age_tier: int = 2, speed: float = DEFAULT_SPEED,
+                                      base_url: str = DEFAULT_TTS_URL, debug: bool = False) -> bytes:
+    """
+    使用 WonderLens TTS 流式 SSE 接口生成音频（带重试机制）
+    
+    Args:
+        text: 要转换的文本
+        age_tier: 年龄段（1=2-4岁, 2=4-6岁, 3=6-8岁）
+        speed: 语速，0.5-2.0，默认0.9
+        base_url: TTS API 基础URL
+        debug: 是否输出调试信息
+    
+    Returns:
+        音频字节数据
+    
+    Raises:
+        Exception: TTS 请求失败时抛出异常
+    """
+    if not text or not text.strip():
+        raise ValueError("文本内容不能为空")
+    
+    # 使用流式 SSE 接口
+    url = base_url.rstrip('/') + '/api/v1/tts/stream'
+    
+    payload = {
+        "text": text.strip(),
+        "age_tier": age_tier
+    }
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+        "X-Client-Type": "web-app",
+    }
+    
+    if debug:
+        print("[TTS Streaming Debug] 请求URL: " + url)
+        print("[TTS Streaming Debug] 请求体: " + json.dumps(payload, indent=2))
+    
+    max_retries = 5
+    last_exception = None
+    import time
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                stream=True,
+                timeout=120
+            )
+            
+            if debug:
+                print("[TTS Streaming Debug] 响应状态码: " + str(response.status_code))
+            
+            if not response.ok:
+                if response.status_code == 504:
+                    wait_time = 2 ** attempt
+                    last_exception = Exception(f"TTS 请求超时（第{attempt+1}次尝试）")
+                    if debug:
+                        print(f"[TTS Streaming Debug] 超时，等待 {wait_time} 秒后重试...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    error_msg = "TTS 请求失败，状态码: " + str(response.status_code)
+                    try:
+                        error_data = response.json()
+                        if "message" in error_data:
+                            error_msg += ", 错误信息: " + error_data["message"]
+                    except:
+                        try:
+                            error_msg += ", 响应内容: " + response.text[:500]
+                        except:
+                            pass
+                    raise Exception(error_msg)
+            
+            # 解析 SSE 事件流
+            audio_chunks = []
+            chunks_received = 0
+            
+            for line in response.iter_lines(decode_unicode=True):
+                if not line:
+                    continue
+                
+                if line.startswith('data:'):
+                    try:
+                        data_str = line[5:].strip()
+                        envelope = json.loads(data_str)
+                        
+                        event_type = envelope.get('type')
+                        event_data = envelope.get('data', {})
+                        
+                        if debug:
+                            print(f"[TTS Streaming Debug] 收到事件: {event_type}")
+                        
+                        if event_type == 'audio':
+                            chunk_b64 = event_data.get('chunk')
+                            if chunk_b64:
+                                chunk_bytes = base64.b64decode(chunk_b64)
+                                audio_chunks.append(chunk_bytes)
+                                chunks_received += 1
+                                if debug:
+                                    print(f"[TTS Streaming Debug] 收到音频片段 {chunks_received}, 大小: {len(chunk_bytes)} bytes")
+                        
+                        elif event_type == 'tts_complete':
+                            if debug:
+                                print(f"[TTS Streaming Debug] TTS 完成，共收到 {chunks_received} 个片段")
+                            if len(audio_chunks) == 0:
+                                raise Exception("未收到任何音频片段")
+                            
+                            # 合并音频片段
+                            audio_data_parts = []
+                            for chunk in audio_chunks:
+                                if len(chunk) > 44:
+                                    audio_data_parts.append(chunk[44:])
+                            
+                            audio_data = b''.join(audio_data_parts)
+                            first_chunk = audio_chunks[0]
+                            wav_header = first_chunk[:44]
+                            file_size = 36 + len(audio_data)
+                            wav_output = bytearray(wav_header)
+                            wav_output[4:8] = file_size.to_bytes(4, 'little')
+                            wav_output[40:44] = len(audio_data).to_bytes(4, 'little')
+                            
+                            return bytes(wav_output) + audio_data
+                        
+                        elif event_type == 'error':
+                            error_msg = event_data.get('message', 'TTS 流式生成失败')
+                            raise Exception(error_msg)
+                    
+                    except json.JSONDecodeError:
+                        continue
+                    except Exception as e:
+                        if debug:
+                            print(f"[TTS Streaming Debug] 处理事件失败: {e}")
+                        continue
+            
+            # 如果循环结束但没有收到 tts_complete
+            if len(audio_chunks) > 0:
+                audio_data_parts = []
+                for chunk in audio_chunks:
+                    if len(chunk) > 44:
+                        audio_data_parts.append(chunk[44:])
+                audio_data = b''.join(audio_data_parts)
+                first_chunk = audio_chunks[0]
+                wav_header = first_chunk[:44]
+                file_size = 36 + len(audio_data)
+                wav_output = bytearray(wav_header)
+                wav_output[4:8] = file_size.to_bytes(4, 'little')
+                wav_output[40:44] = len(audio_data).to_bytes(4, 'little')
+                return bytes(wav_output) + audio_data
+            else:
+                raise Exception("未收到任何音频数据")
+        
+        except requests.exceptions.RequestException as e:
+            wait_time = 2 ** attempt
+            last_exception = Exception(f"TTS 请求异常（第{attempt+1}次尝试）: " + str(e))
+            if debug:
+                print(f"[TTS Streaming Debug] 请求异常: {e}, 等待 {wait_time} 秒后重试...")
+            time.sleep(wait_time)
+            continue
+    
     raise last_exception or Exception("TTS 请求失败，所有重试都已耗尽")
 
 
@@ -139,7 +311,7 @@ def synthesize_audio(text: str, age_tier: int = 2, speed: float = DEFAULT_SPEED,
                      base_url: str = DEFAULT_TTS_URL, debug: bool = False, 
                      amplify_gain: float = 1.0, check_noise: bool = True) -> bytes:
     """
-    调用 WonderLens TTS API 生成音频（使用流式接口）
+    调用 WonderLens TTS API 生成音频（根据年龄段选择接口）
     
     Args:
         text: 要转换的文本
@@ -159,8 +331,17 @@ def synthesize_audio(text: str, age_tier: int = 2, speed: float = DEFAULT_SPEED,
     if not text or not text.strip():
         raise ValueError("文本内容不能为空")
     
-    # 使用流式接口获取音频
-    content = synthesize_audio_streaming(text, age_tier, speed, base_url, debug)
+    # 根据年龄段选择接口：
+    # - 2-4岁 (age_tier=1) 和 4-6岁 (age_tier=2) 使用 one-shot 接口
+    # - 6-8岁 (age_tier=3) 使用流式 SSE 接口
+    if age_tier == 3:
+        if debug:
+            print("[TTS Debug] 6-8岁年龄段，使用流式 SSE 接口")
+        content = synthesize_audio_streaming_sse(text, age_tier, speed, base_url, debug)
+    else:
+        if debug:
+            print("[TTS Debug] 2-4岁或4-6岁年龄段，使用 one-shot 接口")
+        content = synthesize_audio_streaming(text, age_tier, speed, base_url, debug)
     
     # 验证音频数据
     if len(content) < 44:
