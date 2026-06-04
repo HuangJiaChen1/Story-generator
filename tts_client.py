@@ -52,7 +52,7 @@ def is_audio_noisy(audio_bytes: bytes, noise_threshold: float = 20.0) -> bool:
 def synthesize_audio_streaming(text: str, age_tier: int = 2, speed: float = DEFAULT_SPEED,
                                 base_url: str = DEFAULT_TTS_URL, debug: bool = False) -> bytes:
     """
-    使用 WonderLens TTS one-shot audio 接口生成音频
+    使用 WonderLens TTS one-shot audio 接口生成音频（带重试机制）
     
     Args:
         text: 要转换的文本
@@ -88,35 +88,51 @@ def synthesize_audio_streaming(text: str, age_tier: int = 2, speed: float = DEFA
         print("[TTS Debug] One-Shot 接口请求URL: " + url)
         print("[TTS Debug] 请求体: " + json.dumps(payload, indent=2))
     
-    try:
-        response = requests.post(
-            url,
-            headers=headers,
-            json=payload,
-            timeout=60
-        )
-        
-        if debug:
-            print("[TTS Debug] 响应状态码: " + str(response.status_code))
-            print("[TTS Debug] 响应内容长度: " + str(len(response.content)) + " bytes")
-        
-        if response.ok:
-            return response.content
-        else:
-            error_msg = "TTS 请求失败，状态码: " + str(response.status_code)
-            try:
-                error_data = response.json()
-                if "message" in error_data:
-                    error_msg += ", 错误信息: " + error_data["message"]
-            except:
+    max_retries = 3
+    last_exception = None
+    
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=120  # 增加超时时间到120秒
+            )
+            
+            if debug:
+                print("[TTS Debug] 响应状态码: " + str(response.status_code))
+                print("[TTS Debug] 响应内容长度: " + str(len(response.content)) + " bytes")
+            
+            if response.ok:
+                return response.content
+            elif response.status_code == 504:
+                # 服务端超时，重试
+                last_exception = Exception(f"TTS 请求超时（第{attempt+1}次尝试）")
+                if debug:
+                    print(f"[TTS Debug] 超时，等待后重试...")
+                continue
+            else:
+                error_msg = "TTS 请求失败，状态码: " + str(response.status_code)
                 try:
-                    error_msg += ", 响应内容: " + response.text[:500]
+                    error_data = response.json()
+                    if "message" in error_data:
+                        error_msg += ", 错误信息: " + error_data["message"]
                 except:
-                    pass
-            raise Exception(error_msg)
+                    try:
+                        error_msg += ", 响应内容: " + response.text[:500]
+                    except:
+                        pass
+                raise Exception(error_msg)
         
-    except requests.exceptions.RequestException as e:
-        raise Exception("TTS 请求异常: " + str(e))
+        except requests.exceptions.RequestException as e:
+            last_exception = Exception(f"TTS 请求异常（第{attempt+1}次尝试）: " + str(e))
+            if debug:
+                print(f"[TTS Debug] 请求异常: {e}")
+            continue
+    
+    # 所有重试都失败
+    raise last_exception or Exception("TTS 请求失败，所有重试都已耗尽")
 
 
 def synthesize_audio(text: str, age_tier: int = 2, speed: float = DEFAULT_SPEED, 
