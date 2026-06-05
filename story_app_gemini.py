@@ -10,7 +10,7 @@ import os
 from google import genai
 from google.genai.types import GenerateContentConfig
 from story_prompt_English import story_prompt
-from image_generator_gemini import generate_story_images
+from image_generator_gemini import generate_story_images, extract_scenes_from_story, generate_image
 from tts_client import synthesize_audio, estimate_audio_duration, format_duration, amplify_audio
 
 # ============================================================
@@ -286,20 +286,64 @@ def process_story_generation(user_input, prompt_id, selected_story_type, selecte
         
         # 生成故事插图
         images = []
-        with st.spinner("🖼️ 正在绘制插图..."):
-            images = generate_story_images(story, num_images=3, age_group=age_group)
+        progress_text = st.empty()
+        progress_bar = st.progress(0)
+        
+        try:
+            progress_text.text("🖼️ 正在分析故事情节...")
+            scenes = extract_scenes_from_story(story, num_scenes=3, age_group=age_group)
+            
+            for i, scene in enumerate(scenes):
+                progress_percent = (i / len(scenes)) * 100
+                progress_bar.progress(int(progress_percent))
+                
+                if isinstance(scene, dict):
+                    scene_desc = scene.get('story_content', scene.get('prompt', ''))
+                else:
+                    scene_desc = str(scene)
+                
+                progress_text.text(f"🖼️ 正在绘制插图 {i+1}/{len(scenes)}...")
+                
+                image_data = generate_image(scene['prompt'] if isinstance(scene, dict) else scene)
+                if image_data:
+                    images.append({
+                        "scene": scene_desc,
+                        "image": image_data
+                    })
+                
+                progress_bar.progress(int(((i + 1) / len(scenes)) * 100))
+            
+            progress_text.text("✅ 插图绘制完成！")
+            time.sleep(0.5)
+            progress_text.empty()
+            progress_bar.empty()
+            
+            if not images:
+                st.warning("⚠️ 未能生成插图，请检查网络连接")
+        except Exception as img_error:
+            progress_text.text(f"❌ 插图生成失败")
+            st.warning(f"⚠️ 插图生成失败：{img_error}")
+            images = []
         
         if images:
             st.subheader("🖼️ 故事插图")
+            # 添加加载状态提示
+            load_placeholder = st.empty()
+            load_placeholder.info("📥 正在加载图片...（服务器网络可能较慢，请耐心等待）")
+            
             for i, img_info in enumerate(images):
                 img_url = img_info.get('image')
                 if img_url and img_url.startswith("data:image/"):
-                    st.image(img_url, caption=f"插图 {i+1}", use_container_width=True)
+                    # 显示单个图片加载状态
+                    with st.spinner(f"加载插图 {i+1}/{len(images)}..."):
+                        st.image(img_url, caption=f"插图 {i+1}", use_container_width=True)
                     scene_text = img_info.get('scene', '未知场景')
                     if "..." in scene_text:
                         scene_text = scene_text.split("...")[0].strip()
                     st.markdown(f"**📖 插图 {i+1} 情节:** {scene_text}")
                     st.divider()
+            
+            load_placeholder.empty()
         
         return story, word_count, images
         
@@ -499,27 +543,45 @@ if user_input:
         if story:
             # TTS 音频生成
             audio_bytes = None
-            with st.spinner("正在生成语音..."):
-                try:
-                    # 根据年龄段设置 age_tier（API仅支持1和2）
-                    age_tier = 1 if "2-4" in age_label else 2
-                    # 添加音量放大（3倍），解决音量过小问题
-                    audio_bytes = synthesize_audio(story, age_tier=age_tier, amplify_gain=3.0)
-                    
-                    # 显示音频播放器
+            progress_text = st.empty()
+            progress_bar = st.progress(0)
+            
+            try:
+                progress_text.text("🔊 正在生成语音...")
+                progress_bar.progress(30)
+                
+                # 根据年龄段设置 age_tier（API 仅支持 1 和 2）
+                age_tier = 1 if "2-4" in age_label else 2
+                # 添加音量放大（3 倍），解决音量过小问题
+                audio_bytes = synthesize_audio(story, age_tier=age_tier, amplify_gain=3.0)
+                
+                progress_bar.progress(100)
+                progress_text.text("✅ 语音生成完成！")
+                time.sleep(0.5)
+                progress_text.empty()
+                progress_bar.empty()
+                
+                # 显示音频播放器（添加加载提示）
+                audio_placeholder = st.empty()
+                audio_placeholder.info("📥 正在加载音频...（服务器网络可能较慢，请耐心等待）")
+                
+                with st.spinner("加载音频播放器..."):
                     st.audio(audio_bytes, format="audio/wav")
-                    
-                    # 提供下载按钮作为备选方案
+                
+                audio_placeholder.empty()
+                
+                # 提供下载按钮作为备选方案
+                with st.spinner("准备下载按钮..."):
                     st.download_button(
                         label="📥 下载音频文件",
                         data=audio_bytes,
                         file_name="story_audio.wav",
                         mime="audio/wav"
                     )
-                    
-                    st.success("✅ 语音生成成功！")
-                except Exception as e:
-                    st.warning(f"⚠️ 语音生成失败：{e}")
+            except Exception as e:
+                progress_text.text(f"❌ 语音生成失败")
+                progress_bar.empty()
+                st.warning(f"⚠️ 语音生成失败：{e}")
             
             # 保存到历史记录（包含图片和音频）
             st.session_state.messages.append({
