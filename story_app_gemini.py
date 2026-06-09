@@ -7,6 +7,9 @@ import time
 import re
 import json
 import os
+import base64
+import uuid
+from datetime import datetime
 from google import genai
 from google.genai.types import GenerateContentConfig
 from story_prompt_English import story_prompt
@@ -353,11 +356,147 @@ def process_story_generation(user_input, prompt_id, selected_story_type, selecte
         return None, 0, []
 
 # ============================================================
+# 会话历史持久化存储
+# ============================================================
+
+import json
+import os
+
+# 历史记录存储目录
+HISTORY_BASE_DIR = "user_history"
+
+def get_or_create_user_id():
+    """获取或创建用户ID（持久化到URL参数）"""
+    # 如果已经存在于 session_state，直接返回
+    if "persistent_user_id" in st.session_state:
+        return st.session_state.persistent_user_id
+    
+    # 尝试从URL参数获取用户ID
+    query_params = st.query_params
+    if "user_id" in query_params:
+        user_id = query_params["user_id"]
+        # 处理可能的列表格式
+        if isinstance(user_id, list):
+            user_id = user_id[0]
+        # 保存到 session_state
+        st.session_state.persistent_user_id = user_id
+        return user_id
+    
+    # 生成新的用户ID
+    new_user_id = str(uuid.uuid4())[:8]  # 使用短ID便于分享
+    st.session_state.persistent_user_id = new_user_id
+    
+    # 更新URL参数
+    st.query_params["user_id"] = new_user_id
+    
+    return new_user_id
+
+def get_user_history_dir():
+    """获取当前用户的历史记录目录"""
+    user_id = get_or_create_user_id()
+    user_dir = os.path.join(HISTORY_BASE_DIR, user_id)
+    audio_dir = os.path.join(user_dir, "audio")
+    os.makedirs(user_dir, exist_ok=True)
+    os.makedirs(audio_dir, exist_ok=True)
+    return user_dir, audio_dir
+
+def load_history():
+    """从文件加载会话历史"""
+    user_dir, audio_dir = get_user_history_dir()
+    history_file = os.path.join(user_dir, "story_history.json")
+    if os.path.exists(history_file):
+        try:
+            with open(history_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                # 从文件加载音频数据
+                for msg in data:
+                    if msg.get("audio_path") and os.path.exists(msg["audio_path"]):
+                        try:
+                            with open(msg["audio_path"], "rb") as af:
+                                msg["audio"] = af.read()
+                        except Exception as audio_e:
+                            print(f"加载音频文件失败: {audio_e}")
+                            msg["audio"] = None
+                print(f"成功加载 {len(data)} 条历史记录")
+                return data
+        except Exception as e:
+            print(f"加载历史记录失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+    print("历史记录文件不存在，返回空列表")
+    return []
+
+def save_history(messages, max_items=150):
+    """保存会话历史到文件（音频单独存储）"""
+    user_dir, audio_dir = get_user_history_dir()
+    
+    print(f"保存历史记录: 当前 {len(messages)} 条，最大保留 {max_items} 条")
+    
+    # 智能清理：只保留最近的 max_items 条记录
+    if len(messages) > max_items:
+        messages = messages[-max_items:]
+        print(f"清理后保留 {len(messages)} 条")
+    
+    history_file = os.path.join(user_dir, "story_history.json")
+    try:
+        # 准备可序列化的数据
+        serializable_data = []
+        for idx, msg in enumerate(messages):
+            item = msg.copy()
+            # 音频单独保存到文件
+            if item.get("audio") and isinstance(item["audio"], bytes):
+                audio_filename = f"audio_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{idx}.wav"
+                audio_path = os.path.join(audio_dir, audio_filename)
+                with open(audio_path, "wb") as af:
+                    af.write(item["audio"])
+                item["audio_path"] = audio_path
+                del item["audio"]  # 从 JSON 中移除音频数据
+            serializable_data.append(item)
+        
+        with open(history_file, 'w', encoding='utf-8') as f:
+            json.dump(serializable_data, f, ensure_ascii=False, indent=2)
+        
+        print(f"成功保存 {len(serializable_data)} 条历史记录到 {history_file}")
+        
+        # 清理旧的音频文件
+        clean_old_audio_files(serializable_data, audio_dir)
+        
+        return True
+    except Exception as e:
+        print(f"保存历史记录失败: {e}")
+        import traceback
+        traceback.print_exc()
+        return False
+
+def clean_old_audio_files(current_messages, audio_dir):
+    """清理不再使用的音频文件"""
+    try:
+        # 获取当前使用的音频文件
+        used_audio_paths = set()
+        for msg in current_messages:
+            if msg.get("audio_path"):
+                used_audio_paths.add(msg["audio_path"])
+        
+        # 删除不再使用的音频文件
+        if os.path.exists(audio_dir):
+            for filename in os.listdir(audio_dir):
+                filepath = os.path.join(audio_dir, filename)
+                if filepath not in used_audio_paths:
+                    try:
+                        os.remove(filepath)
+                    except Exception:
+                        pass
+    except Exception as e:
+        print(f"清理音频文件失败: {e}")
+
+# ============================================================
 # 初始化 session state
 # ============================================================
 
 if "messages" not in st.session_state:
-    st.session_state.messages = []
+    # 从文件加载历史记录
+    st.session_state.messages = load_history()
 
 if "last_request_time" not in st.session_state:
     st.session_state.last_request_time = 0
@@ -389,6 +528,9 @@ with st.sidebar:
     age_label = st.selectbox("年龄段", ["2-4 岁", "4-6 岁", "6-8 岁"], index=1)
     age_map = {"2-4 岁": 0, "4-6 岁": 1, "6-8 岁": 2}
     prompt_id = age_map[age_label]
+    
+    # 语音服务商选择
+    provider = st.selectbox("语音服务商", ["gemini", "inworld"], index=0, help="选择 TTS 语音服务商")
     
     # 随机关键词按钮
     st.divider()
@@ -451,10 +593,23 @@ with st.sidebar:
     temperature = st.slider("创意程度", 0.0, 1.0, 0.7, 0.1)
     st.divider()
     
+    # 历史记录状态
+    st.subheader("📚 历史记录")
+    st.caption(f"已保存 {len(st.session_state.messages)} 条故事记录")
+    
+    if len(st.session_state.messages) > 0:
+        if st.button("🗑️ 清除所有历史记录", key="clear_history"):
+            st.session_state.messages = []
+            save_history([])
+            st.rerun()
+    
+    st.divider()
+    
     st.caption("💡 输入英文关键词，如「teddy bear, ball, sofa」")
     
     if st.button("🗑️ 清空对话", use_container_width=True):
         st.session_state.messages = []
+        save_history([])  # 同时清空文件中的历史记录
         st.rerun()
 
 # ============================================================
@@ -462,6 +617,8 @@ with st.sidebar:
 # ============================================================
 
 st.title("🐻 儿童故事生成助手")
+user_id = get_or_create_user_id()
+st.info(f"💡 用户ID: `{user_id}` | 请收藏当前页面URL，下次打开可继续查看历史记录")
 st.caption(f"当前模型：{model_name} | 年龄段：{age_label} | 创意程度：{temperature} | 故事类型：{STORY_TYPES[selected_story_type]['name']} | 结尾风格：{ENDING_STYLES[selected_ending_style]['name']}")
 
 # 显示聊天历史
@@ -488,10 +645,12 @@ for idx, msg in enumerate(st.session_state.messages):
             # 显示音频
             if "audio" in msg and msg["audio"]:
                 st.subheader("🔊 故事朗读")
-                st.audio(msg["audio"], format="audio/wav")
+                # 重新创建音频数据副本，尝试避免媒体存储过期问题
+                audio_data = bytes(msg["audio"])
+                st.audio(audio_data, format="audio/wav")
                 st.download_button(
                     label="📥 下载音频文件",
-                    data=msg["audio"],
+                    data=audio_data,
                     file_name="story_audio.wav",
                     mime="audio/wav",
                     key=f"download_audio_{idx}"
@@ -552,8 +711,8 @@ if user_input:
                 
                 # 根据年龄段设置 age_tier（API 仅支持 1 和 2）
                 age_tier = 1 if "2-4" in age_label else 2
-                # 添加音量放大（3 倍），解决音量过小问题
-                audio_bytes = synthesize_audio(story, age_tier=age_tier, amplify_gain=3.0)
+                # 使用服务商返回的原始音频，不做音量放大
+                audio_bytes = synthesize_audio(story, age_tier=age_tier, amplify_gain=1.0, provider=provider)
                 
                 progress_bar.progress(100)
                 progress_text.text("✅ 语音生成完成！")
@@ -591,6 +750,9 @@ if user_input:
                 "images": images,
                 "audio": audio_bytes
             })
+            
+            # 自动保存到文件
+            save_history(st.session_state.messages)
 
 # ============================================================
 # 页脚
