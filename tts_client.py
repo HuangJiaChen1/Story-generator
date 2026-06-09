@@ -17,16 +17,16 @@ if os.path.exists(CONFIG_PATH):
 
 # 默认配置
 DEFAULT_TTS_URL = CONFIG.get('tts_url', 'https://0636fd4d517e5-pro-hk.51wanxue.com/wonderlens-api')
-DEFAULT_SPEED = 0.9  # 根据之前需求，英文语音语速调整为0.9倍
+DEFAULT_SPEED = 1.0  # 正常语速
 
 
-def is_audio_noisy(audio_bytes: bytes, noise_threshold: float = 20.0) -> bool:
+def is_audio_noisy(audio_bytes: bytes, noise_threshold: float = 12.0) -> bool:
     """
-    检测音频是否为噪音（通过零交叉率判断）
+    检测音频是否为噪音（通过零交叉率和能量分布判断）
     
     Args:
         audio_bytes: 音频字节数据
-        noise_threshold: 噪音阈值（零交叉率百分比），默认10%
+        noise_threshold: 噪音阈值（零交叉率百分比），默认12%
     
     Returns:
         True 如果检测到噪音，False 否则
@@ -36,22 +36,79 @@ def is_audio_noisy(audio_bytes: bytes, noise_threshold: float = 20.0) -> bool:
             frames = wf.readframes(wf.getnframes())
             audio_data = np.frombuffer(frames, dtype=np.int16)
             
-            # 计算零交叉率
+            # 计算零交叉率（正常语音3-8%，噪音通常>10%）
             zero_crossings = np.sum(np.diff(np.sign(audio_data)) != 0)
             zero_cross_rate = zero_crossings / len(audio_data) * 100
             
-            # 输出调试信息
-            if hasattr(sys, 'debug_print'):
-                print(f"[Noise Check] 零交叉率: {zero_cross_rate:.2f}%, 阈值: {noise_threshold}%")
+            # 计算能量分布（噪音的能量更均匀，语音有明显峰值）
+            energy = np.sum(audio_data ** 2)
+            avg_energy = energy / len(audio_data)
+            peak_energy = np.max(audio_data ** 2)
+            energy_ratio = peak_energy / (avg_energy + 1e-10)
             
-            return zero_cross_rate > noise_threshold
+            # 综合判断：零交叉率高且能量分布均匀可能是噪音
+            is_noisy = zero_cross_rate > noise_threshold and energy_ratio < 100
             
-    except Exception:
+            if hasattr(sys, 'debug_print') or True:
+                print(f"[Noise Check] 零交叉率: {zero_cross_rate:.2f}%, 能量比: {energy_ratio:.1f}, 是否噪音: {is_noisy}")
+            
+            return is_noisy
+            
+    except Exception as e:
+        print(f"[Noise Check] 检测异常: {e}")
         return False
 
 
+def reduce_noise(audio_bytes: bytes, noise_threshold: float = 0.01) -> bytes:
+    """
+    简单降噪处理：去除低于阈值的信号
+    
+    Args:
+        audio_bytes: 原始音频数据
+        noise_threshold: 噪音阈值（相对于最大振幅的比例）
+    
+    Returns:
+        降噪后的音频数据
+    """
+    with wave.open(io.BytesIO(audio_bytes), 'rb') as wf:
+        params = wf.getparams()
+        frames = wf.readframes(wf.getnframes())
+    
+    sample_width = params.sampwidth
+    
+    if sample_width == 2:  # 16 位
+        audio_data = np.frombuffer(frames, dtype=np.int16).copy()  # 创建可修改的副本
+        max_val = np.max(np.abs(audio_data))
+        threshold = int(max_val * noise_threshold)
+        # 去除低于阈值的信号
+        audio_data[np.abs(audio_data) < threshold] = 0
+        audio_data = audio_data.astype(np.int16)
+    elif sample_width == 4:  # 32 位
+        audio_data = np.frombuffer(frames, dtype=np.int32).copy()  # 创建可修改的副本
+        max_val = np.max(np.abs(audio_data))
+        threshold = int(max_val * noise_threshold)
+        audio_data[np.abs(audio_data) < threshold] = 0
+        audio_data = audio_data.astype(np.int32)
+    else:  # 8 位
+        audio_data = np.frombuffer(frames, dtype=np.uint8).copy()  # 创建可修改的副本
+        audio_data = audio_data.astype(np.int16) - 128
+        max_val = np.max(np.abs(audio_data))
+        threshold = int(max_val * noise_threshold)
+        audio_data[np.abs(audio_data) < threshold] = 0
+        audio_data = (audio_data + 128).astype(np.uint8)
+    
+    # 写回 WAV 格式
+    output_buffer = io.BytesIO()
+    with wave.open(output_buffer, 'wb') as wf:
+        wf.setparams(params)
+        wf.writeframes(audio_data.tobytes())
+    
+    return output_buffer.getvalue()
+
+
 def synthesize_audio_streaming(text: str, age_tier: int = 2, speed: float = DEFAULT_SPEED,
-                                base_url: str = DEFAULT_TTS_URL, debug: bool = False) -> bytes:
+                                base_url: str = DEFAULT_TTS_URL, debug: bool = False,
+                                provider: str = "gemini") -> bytes:
     """
     使用 WonderLens TTS one-shot audio 接口生成音频（带重试机制）
     
@@ -61,6 +118,7 @@ def synthesize_audio_streaming(text: str, age_tier: int = 2, speed: float = DEFA
         speed: 语速，0.5-2.0，默认0.9
         base_url: TTS API 基础URL
         debug: 是否输出调试信息
+        provider: TTS 服务商（gemini 或 inworld），默认 gemini
     
     Returns:
         音频字节数据
@@ -68,6 +126,8 @@ def synthesize_audio_streaming(text: str, age_tier: int = 2, speed: float = DEFA
     Raises:
         Exception: TTS 请求失败时抛出异常
     """
+    import time
+    
     if not text or not text.strip():
         raise ValueError("文本内容不能为空")
     
@@ -76,13 +136,16 @@ def synthesize_audio_streaming(text: str, age_tier: int = 2, speed: float = DEFA
     
     payload = {
         "text": text.strip(),
-        "age_tier": age_tier
+        "age_tier": age_tier,
+        "provider": provider,
+        "sample_rate": 24000
     }
     
     headers = {
         "Content-Type": "application/json",
         "Accept": "audio/*",
         "X-Client-Type": "web-app",
+        "X-Request-ID": f"req_tts_{int(time.time())}"
     }
     
     if debug:
@@ -91,7 +154,6 @@ def synthesize_audio_streaming(text: str, age_tier: int = 2, speed: float = DEFA
     
     max_retries = 5  # 增加重试次数
     last_exception = None
-    import time
     
     for attempt in range(max_retries):
         try:
@@ -143,7 +205,8 @@ def synthesize_audio_streaming(text: str, age_tier: int = 2, speed: float = DEFA
 
 
 def synthesize_audio_streaming_sse(text: str, age_tier: int = 2, speed: float = DEFAULT_SPEED,
-                                      base_url: str = DEFAULT_TTS_URL, debug: bool = False) -> bytes:
+                                      base_url: str = DEFAULT_TTS_URL, debug: bool = False,
+                                      provider: str = "gemini") -> bytes:
     """
     使用 WonderLens TTS 流式 SSE 接口生成音频（带重试机制）
     
@@ -153,6 +216,7 @@ def synthesize_audio_streaming_sse(text: str, age_tier: int = 2, speed: float = 
         speed: 语速，0.5-2.0，默认0.9
         base_url: TTS API 基础URL
         debug: 是否输出调试信息
+        provider: TTS 服务商（gemini 或 inworld），默认 gemini
     
     Returns:
         音频字节数据
@@ -160,6 +224,8 @@ def synthesize_audio_streaming_sse(text: str, age_tier: int = 2, speed: float = 
     Raises:
         Exception: TTS 请求失败时抛出异常
     """
+    import time
+    
     if not text or not text.strip():
         raise ValueError("文本内容不能为空")
     
@@ -168,13 +234,16 @@ def synthesize_audio_streaming_sse(text: str, age_tier: int = 2, speed: float = 
     
     payload = {
         "text": text.strip(),
-        "age_tier": age_tier
+        "age_tier": age_tier,
+        "provider": provider,
+        "sample_rate": 24000
     }
     
     headers = {
         "Content-Type": "application/json",
         "Accept": "text/event-stream",
         "X-Client-Type": "web-app",
+        "X-Request-ID": f"req_tts_{int(time.time())}"
     }
     
     if debug:
@@ -183,7 +252,6 @@ def synthesize_audio_streaming_sse(text: str, age_tier: int = 2, speed: float = 
     
     max_retries = 5
     last_exception = None
-    import time
     
     for attempt in range(max_retries):
         try:
@@ -310,7 +378,8 @@ def synthesize_audio_streaming_sse(text: str, age_tier: int = 2, speed: float = 
 
 def synthesize_audio(text: str, age_tier: int = 2, speed: float = DEFAULT_SPEED, 
                      base_url: str = DEFAULT_TTS_URL, debug: bool = False, 
-                     amplify_gain: float = 1.0, check_noise: bool = True) -> bytes:
+                     amplify_gain: float = 1.0, check_noise: bool = False,
+                     provider: str = "gemini") -> bytes:
     """
     调用 WonderLens TTS API 生成音频（根据年龄段选择接口）
     
@@ -321,10 +390,11 @@ def synthesize_audio(text: str, age_tier: int = 2, speed: float = DEFAULT_SPEED,
         base_url: TTS API 基础URL
         debug: 是否输出调试信息
         amplify_gain: 音量放大倍数，默认1.0（不放大）
-        check_noise: 是否检测噪音，默认开启
+        check_noise: 是否检测噪音，默认关闭（直接返回原始音频）
+        provider: TTS 服务商（gemini 或 inworld），默认 gemini
     
     Returns:
-        音频字节数据
+        音频字节数据（服务商返回的原始音频）
     
     Raises:
         Exception: TTS 请求失败时抛出异常
@@ -332,17 +402,10 @@ def synthesize_audio(text: str, age_tier: int = 2, speed: float = DEFAULT_SPEED,
     if not text or not text.strip():
         raise ValueError("文本内容不能为空")
     
-    # 根据年龄段选择接口：
-    # - 2-4岁 (age_tier=1) 和 4-6岁 (age_tier=2) 使用 one-shot 接口
-    # - 6-8岁 (age_tier=3) 使用流式 SSE 接口
-    if age_tier == 3:
-        if debug:
-            print("[TTS Debug] 6-8岁年龄段，使用流式 SSE 接口")
-        content = synthesize_audio_streaming_sse(text, age_tier, speed, base_url, debug)
-    else:
-        if debug:
-            print("[TTS Debug] 2-4岁或4-6岁年龄段，使用 one-shot 接口")
-        content = synthesize_audio_streaming(text, age_tier, speed, base_url, debug)
+    # 所有年龄段都使用 one-shot 接口
+    if debug:
+        print(f"[TTS Debug] age_tier={age_tier}, provider={provider}，使用 one-shot 接口")
+    content = synthesize_audio_streaming(text, age_tier, speed, base_url, debug, provider)
     
     # 验证音频数据
     if len(content) < 44:
@@ -353,24 +416,7 @@ def synthesize_audio(text: str, age_tier: int = 2, speed: float = DEFAULT_SPEED,
         if debug:
             print("[TTS Debug] 警告：不是标准 WAV 文件，文件头: " + content[:16].hex())
     
-    # 检测噪音
-    if check_noise:
-        # 临时输出调试信息
-        try:
-            with wave.open(io.BytesIO(content), 'rb') as wf:
-                frames = wf.readframes(wf.getnframes())
-                audio_data = np.frombuffer(frames, dtype=np.int16)
-                zero_crossings = np.sum(np.diff(np.sign(audio_data)) != 0)
-                zero_cross_rate = zero_crossings / len(audio_data) * 100
-                if debug:
-                    print("[TTS Debug] 零交叉率: " + str(zero_cross_rate)[:5] + "%")
-        except Exception:
-            pass
-        
-        if is_audio_noisy(content):
-            raise Exception("TTS API 返回的音频数据检测到噪音")
-    
-    # 如果需要放大音量
+    # 如果需要放大音量（默认不放大）
     if amplify_gain != 1.0:
         content = amplify_audio(content, gain=amplify_gain)
         if debug:
