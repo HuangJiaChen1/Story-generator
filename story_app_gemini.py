@@ -396,27 +396,62 @@ def get_user_history_dir():
     user_id = get_or_create_user_id()
     user_dir = os.path.join(HISTORY_BASE_DIR, user_id)
     audio_dir = os.path.join(user_dir, "audio")
+    images_dir = os.path.join(user_dir, "images")
     os.makedirs(user_dir, exist_ok=True)
     os.makedirs(audio_dir, exist_ok=True)
-    return user_dir, audio_dir
+    os.makedirs(images_dir, exist_ok=True)
+    return user_dir, audio_dir, images_dir
 
 def load_history():
-    """从文件加载会话历史"""
-    user_dir, audio_dir = get_user_history_dir()
+    """从文件加载会话历史（不加载音频和图片，延迟加载）"""
+    user_dir, audio_dir, images_dir = get_user_history_dir()
     history_file = os.path.join(user_dir, "story_history.json")
     if os.path.exists(history_file):
         try:
             with open(history_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
-                # 从文件加载音频数据
-                for msg in data:
-                    if msg.get("audio_path") and os.path.exists(msg["audio_path"]):
-                        try:
-                            with open(msg["audio_path"], "rb") as af:
-                                msg["audio"] = af.read()
-                        except Exception as audio_e:
-                            print(f"加载音频文件失败: {audio_e}")
-                            msg["audio"] = None
+                
+                # 迁移旧格式：将 base64 图片提取到单独文件
+                need_save = False
+                for idx, msg in enumerate(data):
+                    if msg.get("images") and isinstance(msg["images"], list):
+                        migrated_images = []
+                        for img_idx, img_info in enumerate(msg["images"]):
+                            img_url = img_info.get("image", "")
+                            # 如果是 base64 格式且没有 image_path，需要迁移
+                            if img_url.startswith("data:image/") and not img_info.get("image_path"):
+                                try:
+                                    import base64
+                                    header, b64_data = img_url.split(",", 1)
+                                    mime_part = header.split(":")[1].split(";")[0]
+                                    ext = "png" if "png" in mime_part else "jpg"
+                                    
+                                    img_filename = f"image_migrated_{idx}_{img_idx}.{ext}"
+                                    img_path = os.path.join(images_dir, img_filename)
+                                    
+                                    img_bytes = base64.b64decode(b64_data)
+                                    with open(img_path, "wb") as imgf:
+                                        imgf.write(img_bytes)
+                                    
+                                    migrated_images.append({
+                                        "image_path": img_path,
+                                        "scene": img_info.get("scene", "")
+                                    })
+                                    need_save = True
+                                except Exception as e:
+                                    print(f"迁移图片失败: {e}")
+                                    migrated_images.append(img_info)
+                            else:
+                                migrated_images.append(img_info)
+                        msg["images"] = migrated_images
+                
+                # 如果有迁移，保存更新后的历史记录
+                if need_save:
+                    print("检测到旧格式图片，正在迁移...")
+                    with open(history_file, 'w', encoding='utf-8') as f:
+                        json.dump(data, f, ensure_ascii=False, indent=2)
+                    print("图片迁移完成")
+                
                 print(f"成功加载 {len(data)} 条历史记录")
                 return data
         except Exception as e:
@@ -427,9 +462,39 @@ def load_history():
     print("历史记录文件不存在，返回空列表")
     return []
 
+def load_audio_lazy(audio_path: str) -> bytes:
+    """延迟加载音频文件"""
+    if audio_path and os.path.exists(audio_path):
+        try:
+            with open(audio_path, "rb") as af:
+                return af.read()
+        except Exception as e:
+            print(f"加载音频文件失败: {e}")
+    return None
+
+def load_image_lazy(image_path: str) -> str:
+    """延迟加载图片文件，返回 base64 格式"""
+    if image_path and os.path.exists(image_path):
+        try:
+            with open(image_path, "rb") as imgf:
+                img_data = imgf.read()
+                # 检测图片类型
+                if img_data[:8] == b'\x89PNG\r\n\x1a\n':
+                    mime_type = "image/png"
+                elif img_data[:2] == b'\xff\xd8':
+                    mime_type = "image/jpeg"
+                else:
+                    mime_type = "image/png"
+                import base64
+                b64_data = base64.b64encode(img_data).decode('utf-8')
+                return f"data:{mime_type};base64,{b64_data}"
+        except Exception as e:
+            print(f"加载图片文件失败: {e}")
+    return None
+
 def save_history(messages, max_items=150):
-    """保存会话历史到文件（音频单独存储）"""
-    user_dir, audio_dir = get_user_history_dir()
+    """保存会话历史到文件（音频和图片单独存储）"""
+    user_dir, audio_dir, images_dir = get_user_history_dir()
     
     print(f"保存历史记录: 当前 {len(messages)} 条，最大保留 {max_items} 条")
     
@@ -444,6 +509,7 @@ def save_history(messages, max_items=150):
         serializable_data = []
         for idx, msg in enumerate(messages):
             item = msg.copy()
+            
             # 音频单独保存到文件
             if item.get("audio") and isinstance(item["audio"], bytes):
                 audio_filename = f"audio_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{idx}.wav"
@@ -452,6 +518,41 @@ def save_history(messages, max_items=150):
                     af.write(item["audio"])
                 item["audio_path"] = audio_path
                 del item["audio"]  # 从 JSON 中移除音频数据
+            
+            # 图片单独保存到文件
+            if item.get("images") and isinstance(item["images"], list):
+                saved_images = []
+                for img_idx, img_info in enumerate(item["images"]):
+                    img_url = img_info.get("image", "")
+                    if img_url.startswith("data:image/"):
+                        # 解析 base64 图片数据
+                        try:
+                            import base64
+                            # 格式: data:image/png;base64,xxxxx
+                            header, b64_data = img_url.split(",", 1)
+                            # 提取 MIME 类型
+                            mime_part = header.split(":")[1].split(";")[0]
+                            ext = "png" if "png" in mime_part else "jpg"
+                            
+                            img_filename = f"image_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{idx}_{img_idx}.{ext}"
+                            img_path = os.path.join(images_dir, img_filename)
+                            
+                            img_bytes = base64.b64decode(b64_data)
+                            with open(img_path, "wb") as imgf:
+                                imgf.write(img_bytes)
+                            
+                            saved_images.append({
+                                "image_path": img_path,
+                                "scene": img_info.get("scene", "")
+                            })
+                        except Exception as img_e:
+                            print(f"保存图片失败: {img_e}")
+                            saved_images.append(img_info)
+                    else:
+                        saved_images.append(img_info)
+                
+                item["images"] = saved_images
+            
             serializable_data.append(item)
         
         with open(history_file, 'w', encoding='utf-8') as f:
@@ -459,8 +560,8 @@ def save_history(messages, max_items=150):
         
         print(f"成功保存 {len(serializable_data)} 条历史记录到 {history_file}")
         
-        # 清理旧的音频文件
-        clean_old_audio_files(serializable_data, audio_dir)
+        # 清理旧的音频和图片文件
+        clean_old_files(serializable_data, audio_dir, images_dir)
         
         return True
     except Exception as e:
@@ -469,14 +570,20 @@ def save_history(messages, max_items=150):
         traceback.print_exc()
         return False
 
-def clean_old_audio_files(current_messages, audio_dir):
-    """清理不再使用的音频文件"""
+def clean_old_files(current_messages, audio_dir, images_dir):
+    """清理不再使用的音频和图片文件"""
     try:
         # 获取当前使用的音频文件
         used_audio_paths = set()
+        used_image_paths = set()
+        
         for msg in current_messages:
             if msg.get("audio_path"):
                 used_audio_paths.add(msg["audio_path"])
+            if msg.get("images"):
+                for img_info in msg["images"]:
+                    if img_info.get("image_path"):
+                        used_image_paths.add(img_info["image_path"])
         
         # 删除不再使用的音频文件
         if os.path.exists(audio_dir):
@@ -487,8 +594,18 @@ def clean_old_audio_files(current_messages, audio_dir):
                         os.remove(filepath)
                     except Exception:
                         pass
+        
+        # 删除不再使用的图片文件
+        if os.path.exists(images_dir):
+            for filename in os.listdir(images_dir):
+                filepath = os.path.join(images_dir, filename)
+                if filepath not in used_image_paths:
+                    try:
+                        os.remove(filepath)
+                    except Exception:
+                        pass
     except Exception as e:
-        print(f"清理音频文件失败: {e}")
+        print(f"清理文件失败: {e}")
 
 # ============================================================
 # 初始化 session state
@@ -629,11 +746,20 @@ for idx, msg in enumerate(st.session_state.messages):
             if "word_count" in msg:
                 st.caption(f"📊 {msg['word_count']} words")
             
-            # 显示图片
+            # 显示图片（支持延迟加载，只加载最近5条的图片）
             if "images" in msg and msg["images"]:
                 st.subheader("🖼️ 故事插图")
+                total_msgs = len(st.session_state.messages)
+                is_recent = (total_msgs - idx) <= 5  # 只加载最近5条
+                
                 for i, img_info in enumerate(msg["images"]):
                     img_url = img_info.get('image')
+                    img_path = img_info.get('image_path')
+                    
+                    # 优先使用已加载的图片，否则延迟加载
+                    if not img_url and img_path and is_recent:
+                        img_url = load_image_lazy(img_path)
+                    
                     if img_url and img_url.startswith("data:image/"):
                         st.image(img_url, caption=f"插图 {i+1}", use_container_width=True)
                         scene_text = img_info.get('scene', '未知场景')
@@ -641,12 +767,29 @@ for idx, msg in enumerate(st.session_state.messages):
                             scene_text = scene_text.split("...")[0].strip()
                         st.markdown(f"**📖 插图 {i+1} 情节:** {scene_text}")
                         st.divider()
+                    elif img_path:
+                        # 旧记录只显示加载按钮
+                        if st.button(f"📷 加载插图 {i+1}", key=f"lazy_img_{idx}_{i}"):
+                            img_url = load_image_lazy(img_path)
+                            if img_url:
+                                st.image(img_url, caption=f"插图 {i+1}", use_container_width=True)
+                        scene_text = img_info.get('scene', '未知场景')
+                        if scene_text:
+                            st.caption(f"📖 {scene_text[:50]}...")
             
-            # 显示音频
+            # 显示音频（支持延迟加载，只加载最近5条的音频）
+            audio_data = None
+            total_msgs = len(st.session_state.messages)
+            is_recent = (total_msgs - idx) <= 5  # 只加载最近5条
+            
             if "audio" in msg and msg["audio"]:
-                st.subheader("🔊 故事朗读")
-                # 重新创建音频数据副本，尝试避免媒体存储过期问题
                 audio_data = bytes(msg["audio"])
+            elif msg.get("audio_path") and is_recent:
+                # 延迟加载音频（只加载最近5条）
+                audio_data = load_audio_lazy(msg["audio_path"])
+            
+            if audio_data:
+                st.subheader("🔊 故事朗读")
                 st.audio(audio_data, format="audio/wav")
                 st.download_button(
                     label="📥 下载音频文件",
@@ -655,6 +798,13 @@ for idx, msg in enumerate(st.session_state.messages):
                     mime="audio/wav",
                     key=f"download_audio_{idx}"
                 )
+            elif msg.get("audio_path"):
+                # 旧记录只显示下载按钮
+                st.caption("💡 音频已保存，点击下载播放")
+                if st.button("📥 下载音频", key=f"lazy_audio_{idx}"):
+                    audio_data = load_audio_lazy(msg["audio_path"])
+                    if audio_data:
+                        st.audio(audio_data, format="audio/wav")
 
 # ============================================================
 # 显示生成的关键词
