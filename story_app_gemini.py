@@ -256,7 +256,7 @@ def generate_story(system_prompt, user_prompt, client, model_name, temperature):
 # 故事生成主函数
 # ============================================================
 
-def process_story_generation(user_input, prompt_id, selected_story_type, selected_ending_style, client, model_name, temperature, age_group):
+def process_story_generation(user_input, prompt_id, selected_story_type, selected_ending_style, client, model_name, temperature, age_group, user_id):
     """处理故事生成的完整流程"""
     try:
         with st.spinner("🎨 AI 正在创作故事..."):
@@ -286,6 +286,10 @@ def process_story_generation(user_input, prompt_id, selected_story_type, selecte
         # 显示故事
         st.markdown(story)
         st.caption(f"⏱️ {elapsed_ms}ms | 📊 {word_count} words")
+        
+        # 显示用户ID和时间戳（方便截图反馈）
+        story_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        st.markdown(f"📋 用户ID: <span style='font-size: 1.2em; font-weight: bold;'>`{user_id}`</span> | 时间: {story_time}", unsafe_allow_html=True)
         
         # 生成故事插图
         images = []
@@ -344,9 +348,15 @@ def process_story_generation(user_input, prompt_id, selected_story_type, selecte
                     if "..." in scene_text:
                         scene_text = scene_text.split("...")[0].strip()
                     st.markdown(f"**📖 插图 {i+1} 情节:** {scene_text}")
-                    st.divider()
+                    # 最后一个插图不显示横线
+                    if i < len(images) - 1:
+                        st.divider()
             
             load_placeholder.empty()
+            
+            # 显示用户ID和时间戳（方便截图反馈）
+            img_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            st.markdown(f"📋 用户ID: <span style='font-size: 1.2em; font-weight: bold;'>`{user_id}`</span> | 时间: {img_time}", unsafe_allow_html=True)
         
         return story, word_count, images
         
@@ -492,16 +502,11 @@ def load_image_lazy(image_path: str) -> str:
             print(f"加载图片文件失败: {e}")
     return None
 
-def save_history(messages, max_items=150):
-    """保存会话历史到文件（音频和图片单独存储）"""
+def save_history(messages):
+    """保存会话历史到文件（音频和图片单独存储，无数量限制）"""
     user_dir, audio_dir, images_dir = get_user_history_dir()
     
-    print(f"保存历史记录: 当前 {len(messages)} 条，最大保留 {max_items} 条")
-    
-    # 智能清理：只保留最近的 max_items 条记录
-    if len(messages) > max_items:
-        messages = messages[-max_items:]
-        print(f"清理后保留 {len(messages)} 条")
+    print(f"保存历史记录: 当前 {len(messages)} 条")
     
     history_file = os.path.join(user_dir, "story_history.json")
     try:
@@ -710,18 +715,6 @@ with st.sidebar:
     temperature = st.slider("创意程度", 0.0, 1.0, 0.7, 0.1)
     st.divider()
     
-    # 历史记录状态
-    st.subheader("📚 历史记录")
-    st.caption(f"已保存 {len(st.session_state.messages)} 条故事记录")
-    
-    if len(st.session_state.messages) > 0:
-        if st.button("🗑️ 清除所有历史记录", key="clear_history"):
-            st.session_state.messages = []
-            save_history([])
-            st.rerun()
-    
-    st.divider()
-    
     st.caption("💡 输入英文关键词，如「teddy bear, ball, sofa」")
     
     if st.button("🗑️ 清空对话", use_container_width=True):
@@ -738,7 +731,7 @@ user_id = get_or_create_user_id()
 st.info(f"💡 用户ID: `{user_id}` | 请收藏当前页面URL，下次打开可继续查看历史记录")
 st.caption(f"当前模型：{model_name} | 年龄段：{age_label} | 创意程度：{temperature} | 故事类型：{STORY_TYPES[selected_story_type]['name']} | 结尾风格：{ENDING_STYLES[selected_ending_style]['name']}")
 
-# 显示聊天历史
+# 显示当前会话内容（从内存中，不加载历史文件）
 for idx, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
@@ -746,18 +739,15 @@ for idx, msg in enumerate(st.session_state.messages):
             if "word_count" in msg:
                 st.caption(f"📊 {msg['word_count']} words")
             
-            # 显示图片（支持延迟加载，只加载最近5条的图片）
+            # 显示图片
             if "images" in msg and msg["images"]:
                 st.subheader("🖼️ 故事插图")
-                total_msgs = len(st.session_state.messages)
-                is_recent = (total_msgs - idx) <= 5  # 只加载最近5条
-                
                 for i, img_info in enumerate(msg["images"]):
                     img_url = img_info.get('image')
                     img_path = img_info.get('image_path')
                     
-                    # 优先使用已加载的图片，否则延迟加载
-                    if not img_url and img_path and is_recent:
+                    # 优先使用已加载的图片，否则从文件加载
+                    if not img_url and img_path:
                         img_url = load_image_lazy(img_path)
                     
                     if img_url and img_url.startswith("data:image/"):
@@ -766,26 +756,14 @@ for idx, msg in enumerate(st.session_state.messages):
                         if "..." in scene_text:
                             scene_text = scene_text.split("...")[0].strip()
                         st.markdown(f"**📖 插图 {i+1} 情节:** {scene_text}")
-                        st.divider()
-                    elif img_path:
-                        # 旧记录只显示加载按钮
-                        if st.button(f"📷 加载插图 {i+1}", key=f"lazy_img_{idx}_{i}"):
-                            img_url = load_image_lazy(img_path)
-                            if img_url:
-                                st.image(img_url, caption=f"插图 {i+1}", use_container_width=True)
-                        scene_text = img_info.get('scene', '未知场景')
-                        if scene_text:
-                            st.caption(f"📖 {scene_text[:50]}...")
+                        if i < len(msg["images"]) - 1:
+                            st.divider()
             
-            # 显示音频（支持延迟加载，只加载最近5条的音频）
+            # 显示音频
             audio_data = None
-            total_msgs = len(st.session_state.messages)
-            is_recent = (total_msgs - idx) <= 5  # 只加载最近5条
-            
             if "audio" in msg and msg["audio"]:
                 audio_data = bytes(msg["audio"])
-            elif msg.get("audio_path") and is_recent:
-                # 延迟加载音频（只加载最近5条）
+            elif msg.get("audio_path"):
                 audio_data = load_audio_lazy(msg["audio_path"])
             
             if audio_data:
@@ -798,13 +776,10 @@ for idx, msg in enumerate(st.session_state.messages):
                     mime="audio/wav",
                     key=f"download_audio_{idx}"
                 )
-            elif msg.get("audio_path"):
-                # 旧记录只显示下载按钮
-                st.caption("💡 音频已保存，点击下载播放")
-                if st.button("📥 下载音频", key=f"lazy_audio_{idx}"):
-                    audio_data = load_audio_lazy(msg["audio_path"])
-                    if audio_data:
-                        st.audio(audio_data, format="audio/wav")
+            
+            # 显示用户ID和时间戳
+            if "user_id" in msg and "timestamp" in msg:
+                st.markdown(f"📋 用户ID: <span style='font-size: 1.2em; font-weight: bold;'>`{msg['user_id']}`</span> | 时间: {msg['timestamp']}", unsafe_allow_html=True)
 
 # ============================================================
 # 显示生成的关键词
@@ -835,7 +810,13 @@ if user_input:
     with st.chat_message("user"):
         st.markdown(f"**关键词：** {user_input}")
     
-    st.session_state.messages.append({"role": "user", "content": f"关键词：{user_input}"})
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    st.session_state.messages.append({
+        "role": "user", 
+        "content": f"关键词：{user_input}",
+        "user_id": user_id,
+        "timestamp": current_time
+    })
     
     with st.chat_message("assistant"):
         story, word_count, images = process_story_generation(
@@ -846,7 +827,8 @@ if user_input:
                 client=client,
                 model_name=model_name,
                 temperature=temperature,
-                age_group=age_label.replace(" 岁", "")  # 转换为 "2-4", "4-6", "6-8" 格式
+                age_group=age_label.replace(" 岁", ""),  # 转换为 "2-4", "4-6", "6-8" 格式
+                user_id=user_id
             )
         
         if story:
@@ -887,18 +869,25 @@ if user_input:
                         file_name="story_audio.wav",
                         mime="audio/wav"
                     )
+                
+                # 显示用户ID和时间戳（方便截图反馈）
+                audio_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                st.markdown(f"📋 用户ID: <span style='font-size: 1.2em; font-weight: bold;'>`{user_id}`</span> | 时间: {audio_time}", unsafe_allow_html=True)
             except Exception as e:
                 progress_text.text(f"❌ 语音生成失败")
                 progress_bar.empty()
                 st.warning(f"⚠️ 语音生成失败：{e}")
             
-            # 保存到历史记录（包含图片和音频）
+            # 保存到历史记录（包含图片、音频、用户ID和时间戳）
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             st.session_state.messages.append({
                 "role": "assistant",
                 "content": story,
                 "word_count": word_count,
                 "images": images,
-                "audio": audio_bytes
+                "audio": audio_bytes,
+                "user_id": user_id,
+                "timestamp": current_time
             })
             
             # 自动保存到文件
